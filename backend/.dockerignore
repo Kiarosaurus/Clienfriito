@@ -1,0 +1,5 @@
+# Keep the image lean and the build context small.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+tests/

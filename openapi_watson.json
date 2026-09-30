@@ -1,0 +1,2053 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Climate Cognitive System API",
+    "description": "IoT Cognitive backend for climate sensor data ingestion and analysis.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/sensors/": {
+      "post": {
+        "tags": [
+          "sensors"
+        ],
+        "summary": "Ingest Reading",
+        "operationId": "ingest_reading_api_v1_sensors__post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SensorReading"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "sensors"
+        ],
+        "summary": "List Readings",
+        "operationId": "list_readings_api_v1_sensors__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Room Id",
+              "nullable": true
+            }
+          },
+          {
+            "name": "sensor_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Sensor Id",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 40,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sensors/emergencies": {
+      "get": {
+        "tags": [
+          "sensors"
+        ],
+        "summary": "Get Co Emergencies",
+        "description": "Return CO > 50 ppm alerts from the last 15 seconds, split into real vs simulated.\n\nHard-fallback rules (any one forces simulated):\n  1. is_simulated flag is True in the stored reading\n  2. sensor_id or resolved room_id contains 'SIM' or 'TEST'\n  3. Sensor not registered in SQL (room_id cannot be resolved)\n  4. room_id does not exist in the rooms table\n\nOnly real if is_simulated is strictly False AND the room resolves to a known SQL room.",
+        "operationId": "get_co_emergencies_api_v1_sensors_emergencies_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/sensors/{sensor_id}/control": {
+      "put": {
+        "tags": [
+          "sensors"
+        ],
+        "summary": "Control Sensor",
+        "operationId": "control_sensor_api_v1_sensors__sensor_id__control_put",
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sensor Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SensorControlIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/rooms": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Rooms",
+        "operationId": "list_rooms_api_v1_admin_rooms_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Create Room",
+        "operationId": "create_room_api_v1_admin_rooms_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/rooms/{room_id}/impact": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Room Impact",
+        "description": "Pre-deletion impact counts for a room that still exists.",
+        "operationId": "get_room_impact_api_v1_admin_rooms__room_id__impact_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/rooms/check-orphans/{room_id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Check Orphans",
+        "description": "Audit endpoint: count Reservation and SensorDevice rows whose room_id string\nmatches room_id but whose parent Room row no longer exists (historical orphans).",
+        "operationId": "check_orphans_api_v1_admin_rooms_check_orphans__room_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/rooms/{room_id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Room",
+        "operationId": "get_room_api_v1_admin_rooms__room_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Update Room",
+        "description": "Update room fields. If payload.new_id differs from room_id, performs a safe PK\nrename: inserts new Room, bulk-UPDATEs the chosen child tables to new_id, then\ndeletes the old Room row — all inside a single transaction.\n\ncascade_sensors=False: SensorDevice rows keep the old room_id (become orphans).\ncascade_reservations=False: Reservation rows keep the old room_id (become orphans).\nSchedules are always re-parented — they are tightly coupled config, not audit data.",
+        "operationId": "update_room_api_v1_admin_rooms__room_id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "cascade_sensors",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Cascade Sensors"
+            }
+          },
+          {
+            "name": "cascade_reservations",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Cascade Reservations"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Delete Room",
+        "description": "Delete a room. Schedules are cascade-deleted (tightly coupled config data).\n\nReservation and SensorDevice rows are intentionally left intact: their room_id\nstring is preserved as a historical audit reference (orphan records). No FK\nconstraint exists on those columns, so the DELETE succeeds without nullifying\nor removing any child records.",
+        "operationId": "delete_room_api_v1_admin_rooms__room_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/rooms/{room_id}/policy": {
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Update Room Policy",
+        "description": "Set the per-room cognitive policy (auto | heuristic | manual).\n\nAdmin-only. Dedicated endpoint so changing policy never touches the heavier\nrename/edit path in update_room.",
+        "operationId": "update_room_policy_api_v1_admin_rooms__room_id__policy_put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomPolicyIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/model/reload": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Reload Model",
+        "description": "Reload the ML model from disk without restarting the backend.\n\nRun the training pipeline (ml_pipeline/extract_data.py → train_model.py) to\nregenerate model.joblib, then call this to pick it up live. Admin-only.",
+        "operationId": "reload_model_api_v1_admin_model_reload_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/sensors/{sensor_id}": {
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Reassign Sensor",
+        "description": "Reassign sensor to a room. If payload.new_id differs from sensor_id, performs a\nsafe PK rename via delete-insert (no other tables have FK references to sensor_devices.id).",
+        "operationId": "reassign_sensor_api_v1_admin_sensors__sensor_id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sensor Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SensorAssignIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Delete Sensor",
+        "description": "Delete a physical sensor from PostgreSQL.\n\nHistorical readings in MongoDB are intentionally preserved as an immutable\naudit trail of the IoT hardware that was installed.",
+        "operationId": "delete_sensor_api_v1_admin_sensors__sensor_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sensor Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/setup-rooms": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Setup Room",
+        "operationId": "setup_room_api_v1_admin_setup_rooms_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/devices": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Devices",
+        "operationId": "list_devices_api_v1_admin_devices_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Register Device",
+        "operationId": "register_device_api_v1_admin_devices_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SensorDeviceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/sensors": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Provision Sensor",
+        "description": "Register a new physical sensor and assign it to a room.\n\nSecurity rule: regardless of the request payload, is_active and\ncontrol_enabled are always forced to False. The admin must explicitly\nenable the sensor from the room dashboard after physical installation,\npreventing unintended AC control from sensors that are not yet calibrated.",
+        "operationId": "provision_sensor_api_v1_admin_sensors_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SensorCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/users": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Users",
+        "operationId": "list_users_api_v1_admin_users_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/users/{user_id}/status": {
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Update User Status",
+        "description": "Change a user's account status (pending → active → inactive).\n\nSelf-modification is blocked (HTTP 400) to prevent an admin from accidentally\nlocking themselves out. Status values are validated against the STATUSES set\ndefined in models/admin.py.",
+        "operationId": "update_user_status_api_v1_admin_users__user_id__status_patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatusPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/reservations": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Reservations",
+        "operationId": "list_reservations_api_v1_admin_reservations_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Create Reservation",
+        "operationId": "create_reservation_api_v1_admin_reservations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReservationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/reservations/{reservation_id}": {
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Delete Reservation",
+        "description": "Delete a reservation. Accessible to admin and collaborator roles.",
+        "operationId": "delete_reservation_api_v1_admin_reservations__reservation_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "reservation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Reservation Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Update Reservation",
+        "operationId": "update_reservation_api_v1_admin_reservations__reservation_id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "reservation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Reservation Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReservationIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/rooms/{room_id}/timeline": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Room Timeline",
+        "description": "24h room timeline: 12 past hourly buckets + current hour + 12 future predictions.\n\nPast hours (now-12h … now) aggregate real Mongo sensor readings per hour and the\nAC cognitive_action snapshot (status + applied setpoint). Configured setpoint is\npulled from PostgreSQL (Room.target_temp).\nFuture hours (now … now+12h) compute predicted_temperature from a diurnal drift\nover the recent baseline plus schedule occupancy, then derive the suggested AC\nsetpoint via calculate_cooling_demand.\nReservations that overlap any anchor are injected with username + expected_occupancy.\nReturns 25 chronologically sorted points.",
+        "operationId": "get_room_timeline_api_v1_admin_rooms__room_id__timeline_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/roi": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Roi",
+        "operationId": "get_roi_api_v1_reports_roi_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer JWT del usuario. En Watson: 'Bearer ' + session variable jwt (la llena POST /chat con el token del widget).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_login_api_v1_auth_login_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Register",
+        "operationId": "register_api_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chat/": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Chat",
+        "operationId": "chat_api_v1_chat__post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization",
+              "nullable": true
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health Check",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_login_api_v1_auth_login_post": {
+        "properties": {
+          "grant_type": {
+            "type": "string",
+            "pattern": "^password$",
+            "title": "Grant Type",
+            "nullable": true
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "title": "Password"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": ""
+          },
+          "client_id": {
+            "type": "string",
+            "title": "Client Id",
+            "nullable": true
+          },
+          "client_secret": {
+            "type": "string",
+            "format": "password",
+            "title": "Client Secret",
+            "nullable": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "Body_login_api_v1_auth_login_post"
+      },
+      "ChatRequest": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "ChatRequest"
+      },
+      "ChatResponse": {
+        "properties": {
+          "response": {
+            "type": "string",
+            "title": "Response"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "response",
+          "session_id"
+        ],
+        "title": "ChatResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "RegisterIn": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": "guest"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "RegisterIn"
+      },
+      "ReservationIn": {
+        "properties": {
+          "room_id": {
+            "type": "string",
+            "title": "Room Id"
+          },
+          "start_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start Time"
+          },
+          "end_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End Time"
+          },
+          "expected_occupancy": {
+            "type": "integer",
+            "title": "Expected Occupancy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "room_id",
+          "start_time",
+          "end_time",
+          "expected_occupancy"
+        ],
+        "title": "ReservationIn"
+      },
+      "RoomCreateIn": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "max_capacity": {
+            "type": "integer",
+            "title": "Max Capacity"
+          },
+          "target_temp": {
+            "type": "number",
+            "title": "Target Temp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "max_capacity",
+          "target_temp"
+        ],
+        "title": "RoomCreateIn"
+      },
+      "RoomIn": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "max_capacity": {
+            "type": "integer",
+            "title": "Max Capacity"
+          },
+          "target_temp": {
+            "type": "number",
+            "title": "Target Temp"
+          },
+          "schedules": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleIn"
+            },
+            "type": "array",
+            "title": "Schedules",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "max_capacity",
+          "target_temp"
+        ],
+        "title": "RoomIn"
+      },
+      "RoomPolicyIn": {
+        "properties": {
+          "control_policy": {
+            "type": "string",
+            "title": "Control Policy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "control_policy"
+        ],
+        "title": "RoomPolicyIn"
+      },
+      "RoomUpdateIn": {
+        "properties": {
+          "new_id": {
+            "type": "string",
+            "title": "New Id",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "max_capacity": {
+            "type": "integer",
+            "title": "Max Capacity"
+          },
+          "target_temp": {
+            "type": "number",
+            "title": "Target Temp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "max_capacity",
+          "target_temp"
+        ],
+        "title": "RoomUpdateIn"
+      },
+      "ScheduleIn": {
+        "properties": {
+          "day_of_week": {
+            "type": "integer",
+            "title": "Day Of Week"
+          },
+          "start_time": {
+            "type": "string",
+            "title": "Start Time"
+          },
+          "end_time": {
+            "type": "string",
+            "title": "End Time"
+          },
+          "expected_people": {
+            "type": "integer",
+            "title": "Expected People"
+          }
+        },
+        "type": "object",
+        "required": [
+          "day_of_week",
+          "start_time",
+          "end_time",
+          "expected_people"
+        ],
+        "title": "ScheduleIn"
+      },
+      "SensorAssignIn": {
+        "properties": {
+          "new_id": {
+            "type": "string",
+            "title": "New Id",
+            "nullable": true
+          },
+          "room_id": {
+            "type": "string",
+            "title": "Room Id",
+            "nullable": true
+          }
+        },
+        "type": "object",
+        "title": "SensorAssignIn"
+      },
+      "SensorControlIn": {
+        "properties": {
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "control_enabled": {
+            "type": "boolean",
+            "title": "Control Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "is_active",
+          "control_enabled"
+        ],
+        "title": "SensorControlIn"
+      },
+      "SensorCreateIn": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "room_id": {
+            "type": "string",
+            "title": "Room Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "room_id"
+        ],
+        "title": "SensorCreateIn"
+      },
+      "SensorDeviceIn": {
+        "properties": {
+          "sensor_id": {
+            "type": "string",
+            "title": "Sensor Id"
+          },
+          "room_id": {
+            "type": "string",
+            "title": "Room Id"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          },
+          "control_enabled": {
+            "type": "boolean",
+            "title": "Control Enabled",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "sensor_id",
+          "room_id"
+        ],
+        "title": "SensorDeviceIn"
+      },
+      "SensorReading": {
+        "properties": {
+          "sensor_id": {
+            "type": "string",
+            "title": "Sensor Id"
+          },
+          "temperature": {
+            "type": "number",
+            "title": "Temperature",
+            "description": "Temperature in Celsius"
+          },
+          "humidity": {
+            "type": "number",
+            "title": "Humidity",
+            "description": "Relative humidity percentage"
+          },
+          "co2_ppm": {
+            "type": "number",
+            "title": "Co2 Ppm",
+            "description": "CO2 concentration in ppm",
+            "nullable": true
+          },
+          "co_ppm": {
+            "type": "number",
+            "title": "Co Ppm",
+            "description": "Carbon monoxide concentration in ppm (MQ7 sensor)",
+            "default": 0.0
+          },
+          "camera_occupancy": {
+            "type": "integer",
+            "title": "Camera Occupancy",
+            "description": "Current headcount measured by the sensor node's camera (MediaPipe line-crossing count). Persisted alongside the CO2-derived actual_occupancy to validate/calibrate the mass-balance proxy. Not a model feature; None when the node has no camera.",
+            "nullable": true
+          },
+          "is_simulated": {
+            "type": "boolean",
+            "title": "Is Simulated",
+            "description": "True when generated by the dev tool, not real hardware",
+            "default": false
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sensor_id",
+          "temperature",
+          "humidity"
+        ],
+        "title": "SensorReading"
+      },
+      "StatusPatch": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "StatusPatch"
+      },
+      "ValidationError": {
+        "title": "ValidationError",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "type": "object",
+        "properties": {
+          "loc": {
+            "title": "Location",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      },
+      "OAuth2PasswordBearer": {
+        "type": "oauth2",
+        "flows": {
+          "password": {
+            "scopes": {},
+            "tokenUrl": "/api/v1/auth/login"
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://kiarosaurus.me"
+    }
+  ]
+}
