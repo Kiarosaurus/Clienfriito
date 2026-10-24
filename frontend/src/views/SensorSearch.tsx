@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Search, RefreshCw, AlertCircle, CheckCircle, XCircle, Cpu, ChevronsUpDown, ChevronUp, ChevronDown } from 'lucide-react'
 import api, { getApiErrorDetail } from '../api/client'
 import { EmptyState } from '../components/EmptyState'
+import { Pagination, usePage } from '../components/ui'
 
 interface SensorDevice {
   sensor_id: string
@@ -55,6 +56,7 @@ export default function SensorSearch() {
       return sortAsc ? (va as string).localeCompare(vb as string) : (vb as string).localeCompare(va as string)
     })
   }, [sensors, query, sortKey, sortAsc])
+  const page = usePage(filtered, 25)
 
   const activeCount = sensors.filter(s => s.is_active).length
   const controlCount = sensors.filter(s => s.control_enabled).length
@@ -176,7 +178,7 @@ export default function SensorSearch() {
                   </td>
                 </tr>
               ) : (
-                filtered.map(s => (
+                page.rows.map(s => (
                   <tr
                     key={s.sensor_id}
                     className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors"
@@ -236,11 +238,9 @@ export default function SensorSearch() {
           </table>
 
           {/* Table footer */}
-          {filtered.length > 0 && (
-            <div className="px-4 py-2 border-t border-slate-700/50 text-xs text-slate-500 text-right">
-              {filtered.length} de {sensors.length} sensor{sensors.length !== 1 ? 'es' : ''}
-            </div>
-          )}
+          <div className="border-t border-slate-800 px-4 pb-3">
+            <Pagination {...page} noun={`sensores${filtered.length !== sensors.length ? ` (de ${sensors.length})` : ''}`} />
+          </div>
         </div>
       )}
     </div>

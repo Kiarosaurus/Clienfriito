@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Users, RefreshCw, AlertCircle, CheckCircle, XCircle } from 'lucide-react'
 import api, { getApiErrorDetail } from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import { Pagination, usePage } from '../components/ui'
 
 interface UserRow {
   user_id: number
@@ -68,6 +69,7 @@ export default function UserManagement() {
   }
 
   const filtered = users.filter(u => u.status === tab)
+  const page = usePage(filtered, 25)
 
   const counts = {
     pending:  users.filter(u => u.status === 'pending').length,
@@ -135,7 +137,7 @@ export default function UserManagement() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(u => {
+              {page.rows.map(u => {
                 const isSelf = u.username === currentUser?.username
                 return (
                   <tr key={u.user_id} className={`border-b border-slate-700/50 hover:bg-slate-700/20 transition-colors ${isSelf ? 'bg-blue-950/20' : ''}`}>
@@ -220,6 +222,7 @@ export default function UserManagement() {
             </tbody>
           </table>
         )}
+        <div className="px-4 pb-3"><Pagination {...page} noun="usuarios" /></div>
       </div>
     </div>
   )
