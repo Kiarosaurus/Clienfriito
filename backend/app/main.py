@@ -47,6 +47,18 @@ async def startup_ml():
 
 
 @app.on_event("startup")
+async def startup_mqtt():
+    from app.services.mqtt_ingest import start_mqtt_ingest
+    start_mqtt_ingest()
+
+
+@app.on_event("shutdown")
+async def shutdown_mqtt():
+    from app.services.mqtt_ingest import stop_mqtt_ingest
+    await stop_mqtt_ingest()
+
+
+@app.on_event("startup")
 async def startup_db():
     import app.models.admin  # register ORM models before create_all
     from app.database_sql import engine, Base, SessionLocal

@@ -28,3 +28,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15")
 # temperature drift so its peak lands in the local afternoon. Default -5 = America/Lima
 # (Barranco, UTEC — no DST). Override via env for other deployments.
 LOCAL_UTC_OFFSET_HOURS = int(os.getenv("LOCAL_UTC_OFFSET_HOURS", "-5"))
+
+# MQTT ingestion of the ESP32 node telemetry (app/services/mqtt_ingest.py).
+# Disabled by default so tests and manual runs don't need a broker;
+# docker-compose enables it and points it at the `mosquitto` service.
+MQTT_ENABLED = os.getenv("MQTT_ENABLED", "false").lower() in ("1", "true", "yes")
+MQTT_HOST = os.getenv("MQTT_HOST", "localhost")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_TOPIC = os.getenv("MQTT_TOPIC", "ccs/+/telemetry")

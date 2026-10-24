@@ -77,11 +77,18 @@ services:
       WATSON_URL: ${WATSON_URL:-}
       WATSON_ASSISTANT_ID: ${WATSON_ASSISTANT_ID:-}
       WATSON_EXTENSION_KEY: ${WATSON_EXTENSION_KEY:-}
+      # Ingesta MQTT de la telemetria del nodo ESP32 (app/services/mqtt_ingest.py)
+      MQTT_ENABLED: ${MQTT_ENABLED:-true}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      MQTT_TOPIC: ${MQTT_TOPIC:-ccs/+/telemetry}
     depends_on:
       postgres:
         condition: service_healthy
       mongo:
         condition: service_healthy
+      mosquitto:
+        condition: service_started
     volumes:
       # Dev convenience: host code overrides the image's COPY, so a git pull +
       # `docker compose restart backend` picks up changes without a rebuild.
