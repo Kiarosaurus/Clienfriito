@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, Building2, Cpu, CalendarDays,
+  LayoutDashboard, Cpu, CalendarDays, FlaskConical,
   Users, LogOut, ChevronRight, Building, TrendingUp,
   AlertTriangle, X, ShieldAlert, Menu, Clock, ChevronDown,
 } from 'lucide-react'
+import axios from 'axios'
 import { useAuth } from '../context/AuthContext'
 import { useEmergency } from '../context/EmergencyContext'
 import FloatingChat from './FloatingChat'
@@ -17,14 +18,21 @@ interface NavItem {
   roles?: string[]
 }
 
-const NAV: NavItem[] = [
-  { to: '/',             label: 'Dashboard',    icon: <LayoutDashboard size={18} /> },
-  { to: '/rooms',        label: 'Aulas',         icon: <Building2 size={18} /> },
-  { to: '/sensors',      label: 'Sensores',      icon: <Cpu size={18} />,          roles: ['admin'] },
-  { to: '/reservations', label: 'Reservas',      icon: <CalendarDays size={18} />, roles: ['admin', 'collaborator'] },
-  { to: '/admin/users',  label: 'Usuarios',      icon: <Users size={18} />,        roles: ['admin'] },
-  { to: '/infrastructure', label: 'Infraestructura', icon: <Building size={18} />,   roles: ['admin'] },
-  { to: '/roi',          label: 'Rentabilidad',  icon: <TrendingUp size={18} />,   roles: ['admin'] },
+// Grouped by what the user is doing: watching, planning, or configuring.
+const NAV: { group: string; items: NavItem[] }[] = [
+  { group: 'Monitoreo', items: [
+    { to: '/',             label: 'Resumen',         icon: <LayoutDashboard size={18} /> },
+  ] },
+  { group: 'Gestión', items: [
+    { to: '/reservations', label: 'Reservas',        icon: <CalendarDays size={18} />, roles: ['admin', 'collaborator'] },
+    { to: '/roi',          label: 'Rentabilidad',    icon: <TrendingUp size={18} />,   roles: ['admin'] },
+  ] },
+  { group: 'Administración', items: [
+    { to: '/infrastructure',   label: 'Infraestructura', icon: <Building size={18} />,     roles: ['admin'] },
+    { to: '/sensors',          label: 'Sensores',        icon: <Cpu size={18} />,          roles: ['admin'] },
+    { to: '/admin/users',      label: 'Usuarios',        icon: <Users size={18} />,        roles: ['admin'] },
+    { to: '/admin/simulation', label: 'Simulación',      icon: <FlaskConical size={18} />, roles: ['admin'] },
+  ] },
 ]
 
 export default function Layout() {
@@ -60,21 +68,34 @@ export default function Layout() {
     return () => clearInterval(t)
   }, [])
 
+  // Server status — the only connection indicator in the app (polls /health).
+  const [serverOnline, setServerOnline] = useState<boolean | null>(null)
+  useEffect(() => {
+    const check = () => axios.get('/health', { timeout: 5_000 })
+      .then(() => setServerOnline(true))
+      .catch(() => setServerOnline(false))
+    check()
+    const t = setInterval(check, 15_000)
+    return () => clearInterval(t)
+  }, [])
+
   function handleLogout() {
     logout()
     navigate('/login', { replace: true })
   }
 
-  const visible = NAV.filter(n => !n.roles || n.roles.includes(user?.role ?? ''))
+  const visible = NAV
+    .map(g => ({ ...g, items: g.items.filter(n => !n.roles || n.roles.includes(user?.role ?? '')) }))
+    .filter(g => g.items.length > 0)
 
   // ── Emergency display rules ───────────────────────────────────────────────
-  const isOnDashboard = location.pathname === '/'
+  const isOnSimulation = location.pathname === '/admin/simulation'
   const hasReal = realEmergencies.length > 0
   const hasSim  = simulatedEmergencies.length > 0 && !hasReal
 
   // What to render:
   const showReal = hasReal                       // all routes
-  const showSim  = hasSim && isOnDashboard       // only on /
+  const showSim  = hasSim && isOnSimulation      // only where it is generated
 
   const isAnyVisible   = showReal || showSim
   const activeEntries  = showReal ? realEmergencies : showSim ? simulatedEmergencies : []
@@ -123,7 +144,7 @@ export default function Layout() {
         Se ha detectado un pico <span className="font-bold text-orange-300">sintético</span> de CO
         en las siguientes aulas. Esta alerta es una{' '}
         <span className="font-bold text-orange-300">prueba del sistema cognitivo</span> y
-        desaparecerá al cambiar de pestaña.
+        desaparecerá al salir de Simulación.
       </>
 
   const modalFooterText = showReal
@@ -280,14 +301,21 @@ export default function Layout() {
             </span>
           )}
 
-          {/* System status pill — same "Sistema activo" state */}
-          <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-green-300 rounded-full px-2.5 py-1 bg-green-500/10 border border-green-500/25">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            En línea
+          {/* Server status — real, from /health */}
+          <span
+            title={serverOnline === false ? 'El servidor no responde: los datos pueden estar desactualizados' : 'Servidor conectado'}
+            className={`hidden sm:inline-flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 ring-1 ${
+              serverOnline === false
+                ? 'text-red-300 bg-red-500/10 ring-red-500/30'
+                : serverOnline ? 'text-emerald-300 bg-emerald-500/10 ring-emerald-500/30' : 'text-slate-400 bg-slate-500/10 ring-slate-500/30'
+            }`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${serverOnline === false ? 'bg-red-400' : serverOnline ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+            {serverOnline === false ? 'Servidor sin conexión' : serverOnline ? 'Servidor conectado' : 'Conectando…'}
           </span>
 
           {/* Current-time pill — refreshed each minute */}
-          <span className="hidden md:inline-flex items-center gap-1.5 text-xs text-sky-300 rounded-full px-2.5 py-1 bg-sky-400/[0.08] border border-sky-400/20 tabular-nums">
+          <span className="hidden md:inline-flex items-center gap-1.5 text-xs text-slate-300 tabular-nums">
             <Clock size={12} /> {clock}
           </span>
 
@@ -340,24 +368,29 @@ export default function Layout() {
           <X size={18} />
         </button>
 
-        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-          {visible.map(item => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === '/'}
-              className={({ isActive }) =>
-                `group flex items-center gap-3 px-3 py-2 rounded-lg text-sm border transition-colors ${
-                  isActive
-                    ? 'bg-blue-600/20 text-blue-300 border-blue-500/30'
-                    : 'text-slate-400 border-transparent hover:bg-slate-700 hover:text-white hover:border-slate-600/70'
-                }`
-              }
-            >
-              {item.icon}
-              <span className="flex-1">{item.label}</span>
-              <ChevronRight size={13} className="opacity-30 transition-all group-hover:opacity-100 group-hover:translate-x-0.5" />
-            </NavLink>
+        <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
+          {visible.map(g => (
+            <div key={g.group} className="space-y-0.5">
+              <p className="px-3 pb-1 text-xs text-slate-500">{g.group}</p>
+              {g.items.map(item => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === '/'}
+                  className={({ isActive }) =>
+                    `group flex items-center gap-3 px-3 py-2 rounded-lg text-sm border transition-colors ${
+                      isActive || (item.to === '/' && location.pathname.startsWith('/room/'))
+                        ? 'bg-blue-600/20 text-blue-300 border-blue-500/30'
+                        : 'text-slate-400 border-transparent hover:bg-slate-700 hover:text-white hover:border-slate-600/70'
+                    }`
+                  }
+                >
+                  {item.icon}
+                  <span className="flex-1">{item.label}</span>
+                  <ChevronRight size={13} className="opacity-30 transition-all group-hover:opacity-100 group-hover:translate-x-0.5" />
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
 
