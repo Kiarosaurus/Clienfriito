@@ -12,4 +12,17 @@ Al crear commits en este repositorio:
 - Commitear directo a la rama actual; no crear ramas.
 - No hacer `git push` salvo que se pida explícitamente.
  
- 
+ ## Reglas de diseño del frontend
+
+El dashboard React (`frontend/`) usa **Tailwind** como único sistema visual. Al tocar una vista:
+
+1. **Una pantalla, una pregunta.** Resumen: "¿cómo están todas las aulas?". Aula: "¿qué pasa en esta aula?". Administración: "¿cómo configuro el sistema?".
+2. **Todo dato dice de dónde viene:** aula, sensor y hora de la lectura. Nunca mezclar lecturas de varias aulas en un mismo valor o gráfico.
+3. **Monitorear, simular y administrar van separados.** La simulación de lecturas y la recarga del modelo viven en Administración, no en las vistas de monitoreo.
+4. **Cada elemento aparece una sola vez:** un indicador de conexión (real, no decorativo) y un reloj.
+5. **Jerarquía de arriba abajo:** estado y alertas → valores actuales → historial → detalle.
+6. **Tarjetas compactas** (~72 px de alto, todas iguales): etiqueta, valor y chip de estado. Sin cajas de iconos grandes.
+7. **El color solo indica estado** y siempre va con texto o ícono. Sin filas de leyenda: la leyenda va en el propio gráfico o en el tooltip.
+8. **Un gráfico por magnitud**, con ventana de tiempo (no por cantidad de puntos) y solo líneas de referencia con significado: setpoint y umbrales del nodo.
+9. **Un solo sistema visual:** escala de espaciado de 4 px, tres tamaños de texto (`text-xs`, `text-sm`, `text-2xl`), un solo estilo de tarjeta (`components/ui.tsx`).
+10. **Todo en español** y con estados en lenguaje de usuario ("Enfriando", "En espera"), no códigos internos (`COOLING`, `STANDBY`).
