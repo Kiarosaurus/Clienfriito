@@ -1,240 +1,295 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { AlertTriangle, Search, RefreshCw } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import api, { getApiErrorDetail } from '../api/client'
 import type { StoredReading } from '../types'
-import { useEmergency } from '../context/EmergencyContext'
 import { levelTemp, levelCO2, levelCO, type SensorLevel } from '../utils/sensorColors'
+import { buildingLabel, floorLabel, groupRooms, shortName, type Room } from '../utils/rooms'
+import { RoomFilters, useRoomFilter } from '../components/RoomFilters'
 import {
-  Card, Chip, PageHeader, NODE_STATE, AI_STATE, LIVE_SECONDS,
-  NODE_SETPOINT, fmt, parseUtc, timeAgo, valueText, type Tone,
+  Card, Chip, PageHeader, NODE_STATE, AI_STATE, LIVE_SECONDS, NODE_SETPOINT,
+  fmt, parseUtc, timeAgo, valueText, type Tone,
 } from '../components/ui'
 
-interface Room {
-  id: string
-  name: string
-  max_capacity: number
-  target_temp: number
-}
+// Design rules 1 + 11: "how are all the rooms?" for any number of rooms.
+// Overview first (status counters), filter (search, building, floor, status),
+// details on demand (cards only for rooms that need attention, a grouped table for the rest).
 
-interface RoomRow {
-  room: Room
-  latest: StoredReading | null
-}
+type Status = 'alert' | 'warn' | 'ok' | 'nodata'
+
+interface Row { room: Room; latest: StoredReading | null; status: Status; level: SensorLevel | null }
 
 const POLL_MS = 5_000
-const LEVEL_RANK: Record<SensorLevel, number> = { normal: 0, atencion: 1, elevado: 2, alerta: 3 }
+// A room whose last reading is older than this is "sin datos recientes".
+const STALE_MIN = 15
 
-// Worst level across the room's latest values.
-// Temperature reference: the node's setpoint when a node is acting, else the AI's.
-function targetOf(r: RoomRow): number {
-  const l = r.latest
+const STATUS: Record<Status, { label: string; tone: Tone }> = {
+  alert: { label: 'En alerta', tone: 'alert' },
+  warn: { label: 'En atención', tone: 'warn' },
+  ok: { label: 'Normales', tone: 'ok' },
+  nodata: { label: 'Sin datos recientes', tone: 'muted' },
+}
+const ORDER: Status[] = ['alert', 'warn', 'ok', 'nodata']
+const RANK: Record<SensorLevel, number> = { normal: 0, atencion: 1, elevado: 2, alerta: 3 }
+
+function targetOf(room: Room, l: StoredReading | null) {
   if (l?.node_state?.accion) return NODE_SETPOINT
-  return l?.cognitive_action?.target ?? r.room.target_temp
+  return l?.cognitive_action?.target ?? room.target_temp
 }
 
-function roomLevel(r: RoomRow): SensorLevel {
-  const l = r.latest
-  if (!l) return 'normal'
-  const target = targetOf(r)
-  const levels = [levelTemp(l.temperature, target), levelCO2(l.co2_ppm ?? 0), levelCO(l.co_ppm ?? 0)]
-  return levels.reduce((a, b) => (LEVEL_RANK[b] > LEVEL_RANK[a] ? b : a), 'normal' as SensorLevel)
+function levelOf(room: Room, l: StoredReading): SensorLevel {
+  const levels = [levelTemp(l.temperature, targetOf(room, l)), levelCO2(l.co2_ppm ?? 0), levelCO(l.co_ppm ?? 0)]
+  return levels.reduce((a, b) => (RANK[b] > RANK[a] ? b : a), 'normal' as SensorLevel)
 }
 
-// Which magnitude put the room at alert level, in words.
-function alertReason(r: RoomRow): string {
+function classify(room: Room, l: StoredReading | null, now: number): Row {
+  if (!l || (now - parseUtc(l.timestamp).getTime()) / 60_000 > STALE_MIN) {
+    return { room, latest: l, status: 'nodata', level: l ? levelOf(room, l) : null }
+  }
+  const level = levelOf(room, l)
+  return { room, latest: l, level, status: level === 'alerta' ? 'alert' : level === 'normal' ? 'ok' : 'warn' }
+}
+
+// What the room is doing: the node's decision if it has one, else the AI's.
+function decision(l: StoredReading | null): { label: string; tone: Tone } | null {
+  if (!l) return null
+  if (l.node_state?.alarma_co) return { label: 'Alarma CO', tone: 'alert' }
+  const node = l.node_state?.accion
+  if (node) return NODE_STATE[node] ?? { label: node, tone: 'muted' }
+  const ai = l.cognitive_action?.ac_status
+  return ai ? (AI_STATE[ai] ?? { label: ai, tone: 'muted' }) : null
+}
+
+function alertReason(r: Row): string {
   const l = r.latest
   if (!l) return ''
-  const target = targetOf(r)
-  if (levelCO(l.co_ppm ?? 0) === 'alerta') return `CO ${fmt(l.co_ppm, 0)} ppm`
-  if (levelCO2(l.co2_ppm ?? 0) === 'alerta') return `CO₂ ${fmt(l.co2_ppm, 0)} ppm`
-  if (levelTemp(l.temperature, target) === 'alerta') return `${fmt(l.temperature)} °C, objetivo ${fmt(target)} °C`
-  return 'fuera de rango'
+  if (levelCO(l.co_ppm ?? 0) !== 'normal') return `CO ${fmt(l.co_ppm, 0)} ppm`
+  if (levelCO2(l.co2_ppm ?? 0) !== 'normal') return `CO₂ ${fmt(l.co2_ppm, 0)} ppm`
+  return `${fmt(l.temperature)} °C (objetivo ${fmt(targetOf(r.room, l))} °C)`
 }
 
-// What the room is doing right now: the node's decision if it has one, else the AI's.
-function decision(l: StoredReading | null): { label: string; tone: Tone; source: string } | null {
-  if (!l) return null
-  const node = l.node_state?.accion
-  if (node) {
-    if (l.node_state?.alarma_co) return { label: 'Alarma CO', tone: 'alert', source: 'nodo' }
-    const s = NODE_STATE[node] ?? { label: node, tone: 'muted' as Tone }
-    return { ...s, source: 'nodo' }
-  }
-  const ai = l.cognitive_action?.ac_status
-  if (!ai) return null
-  const s = AI_STATE[ai] ?? { label: ai, tone: 'muted' as Tone }
-  return { ...s, source: 'IA' }
-}
+// ── Pieces ────────────────────────────────────────────────────────────────────
+const DOT: Record<Status, string> = { alert: 'bg-red-400', warn: 'bg-amber-400', ok: 'bg-emerald-400', nodata: 'bg-slate-500' }
 
-function splitName(room: Room) {
-  // "A403 Aula Multipropósito" → code "A403", rest "Aula Multipropósito"
-  const rest = room.name.startsWith(room.id) ? room.name.slice(room.id.length).trim() : room.name
-  return { code: room.id, rest }
-}
-
-function Value({ label, value, unit, level }: { label: string; value: string; unit: string; level: SensorLevel | null }) {
+function Counter({ status, count, active, onClick }: { status: Status; count: number; active: boolean; onClick: () => void }) {
   return (
-    <div className="min-w-0">
-      <p className="text-xs text-slate-400">{label}</p>
-      <p className={`text-sm font-semibold tabular-nums ${level ? valueText(level) : 'text-slate-200'}`}>
-        {value}{value !== '—' && <span className="ml-0.5 text-xs font-normal text-slate-400">{unit}</span>}
-      </p>
-    </div>
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={`surface flex h-[72px] flex-col justify-between px-3 py-2 text-left transition-colors hover:border-slate-600 ${active ? 'border-blue-500/70' : ''}`}
+    >
+      <span className="flex items-center gap-1.5 text-xs text-slate-400">
+        <span className={`h-1.5 w-1.5 rounded-full ${DOT[status]}`} />
+        {STATUS[status].label}
+      </span>
+      <span className="text-xl font-semibold leading-none text-white tabular-nums">{count}</span>
+    </button>
   )
 }
 
-function RoomCard({ row, now }: { row: RoomRow; now: number }) {
+function AttentionCard({ row, now }: { row: Row; now: number }) {
   const { room, latest: l } = row
-  const { code, rest } = splitName(room)
-  const age = l ? (now - parseUtc(l.timestamp).getTime()) / 1000 : Infinity
-  const live = age < LIVE_SECONDS
   const d = decision(l)
-  const level = roomLevel(row)
-  const target = targetOf(row)
-
   return (
-    <Link
-      to={`/room/${room.id}`}
-      className={`surface group flex flex-col gap-3 p-3 transition-colors hover:border-slate-600 ${
-        level === 'alerta' ? 'border-red-500/50' : ''
-      }`}
-    >
+    <Link to={`/room/${room.id}`} className={`surface flex flex-col gap-2 p-3 transition-colors hover:border-slate-600 ${row.status === 'alert' ? 'border-red-500/50' : 'border-amber-500/30'}`}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-white">{code}</p>
-          <p className="truncate text-xs text-slate-400">{rest}</p>
+          <p className="truncate text-sm font-semibold text-white">{room.id} <span className="font-normal text-slate-400">{shortName(room)}</span></p>
+          <p className="text-xs text-slate-500">{buildingLabel(room.building)} · {floorLabel(room.floor)}</p>
         </div>
-        {d ? <Chip tone={d.tone} title={`Decisión del ${d.source}`}>{d.label}</Chip> : <Chip>Sin datos</Chip>}
+        <Chip tone={STATUS[row.status].tone}>{alertReason(row)}</Chip>
       </div>
-
-      <div className="grid grid-cols-3 gap-2">
-        <Value label="Temp." value={fmt(l?.temperature)} unit="°C" level={l ? levelTemp(l.temperature, target) : null} />
-        <Value label="CO₂" value={fmt(l?.co2_ppm, 0)} unit="ppm" level={l ? levelCO2(l.co2_ppm ?? 0) : null} />
-        <Value label="CO" value={fmt(l?.co_ppm)} unit="ppm" level={l ? levelCO(l.co_ppm ?? 0) : null} />
-      </div>
-
-      <div className="flex items-center justify-between gap-2 border-t border-slate-800 pt-2 text-xs text-slate-400">
-        <span className="flex items-center gap-1.5">
-          <span className={`h-1.5 w-1.5 rounded-full ${live ? 'animate-pulse bg-emerald-400' : 'bg-slate-500'}`} />
-          {live ? 'En vivo' : timeAgo(l?.timestamp, now)}
-        </span>
-        <span className="flex items-center gap-1.5">
-          {l?.is_simulated && <Chip tone="warn">Simulada</Chip>}
-          {d?.source === 'nodo' && <Chip tone="info">Nodo ESP32</Chip>}
-        </span>
+      <div className="flex items-center justify-between text-xs text-slate-400">
+        <span>{timeAgo(l?.timestamp, now)}</span>
+        {d && <Chip tone={d.tone}>{d.label}</Chip>}
       </div>
     </Link>
   )
 }
 
+function RoomRow({ row, now }: { row: Row; now: number }) {
+  const navigate = useNavigate()
+  const { room, latest: l } = row
+  const live = !!l && (now - parseUtc(l.timestamp).getTime()) / 1000 < LIVE_SECONDS
+  const target = targetOf(room, l)
+  const d = decision(l)
+  const stale = row.status === 'nodata'
+  const cls = (level: SensorLevel) => (stale ? 'text-slate-500' : valueText(level))
+  return (
+    <tr className="table-row cursor-pointer" onClick={() => navigate(`/room/${room.id}`)}>
+      <td className="py-2 pl-3 pr-4">
+        <Link to={`/room/${room.id}`} onClick={e => e.stopPropagation()} className="text-sm font-medium text-slate-100 hover:underline">{room.id}</Link>
+        <span className="ml-2 hidden text-xs text-slate-500 md:inline">{shortName(room)}</span>
+      </td>
+      <td className={`py-2 pr-4 text-sm tabular-nums ${l ? cls(levelTemp(l.temperature, target)) : 'text-slate-500'}`}>{l ? `${fmt(l.temperature)} °C` : '—'}</td>
+      <td className={`py-2 pr-4 text-sm tabular-nums ${l ? cls(levelCO2(l.co2_ppm ?? 0)) : 'text-slate-500'}`}>{l ? fmt(l.co2_ppm, 0) : '—'}</td>
+      <td className={`py-2 pr-4 text-sm tabular-nums ${l ? cls(levelCO(l.co_ppm ?? 0)) : 'text-slate-500'}`}>{l ? fmt(l.co_ppm) : '—'}</td>
+      <td className="py-2 pr-4">{!stale && d ? <Chip tone={d.tone}>{d.label}</Chip> : <span className="text-xs text-slate-500">—</span>}</td>
+      <td className="py-2 pr-3 text-right text-xs text-slate-400">
+        <span className="inline-flex items-center gap-1.5">
+          {live && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />}
+          {live ? 'En vivo' : timeAgo(l?.timestamp, now)}
+        </span>
+      </td>
+    </tr>
+  )
+}
+
+// ── View ──────────────────────────────────────────────────────────────────────
 export default function Overview() {
   const [rooms, setRooms] = useState<Room[]>([])
   const [latest, setLatest] = useState<Record<string, StoredReading | null>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [query, setQuery] = useState('')
   const [now, setNow] = useState(Date.now())
-  const { realEmergencies } = useEmergency()
+  const [statusFilter, setStatusFilter] = useState<Status | null>(null)
+  const [open, setOpen] = useState<Record<string, boolean>>({})
+  const filter = useRoomFilter(rooms)
 
   useEffect(() => {
     api.get<Room[]>('/admin/rooms')
       .then(r => setRooms(r.data ?? []))
       .catch(err => setError(getApiErrorDetail(err) ?? 'No se pudieron cargar las aulas.'))
-      .finally(() => setLoading(false))
   }, [])
 
-  // Latest reading per room, refreshed every few seconds.
+  // One aggregated request for every room's latest reading.
   useEffect(() => {
-    if (rooms.length === 0) return
     let cancelled = false
-    const load = async () => {
-      const entries = await Promise.all(rooms.map(async room => {
-        try {
-          const { data } = await api.get<StoredReading[]>(`/sensors/?room_id=${room.id}&limit=1`)
-          return [room.id, data?.[0] ?? null] as const
-        } catch {
-          return [room.id, null] as const
-        }
-      }))
-      if (!cancelled) { setLatest(Object.fromEntries(entries)); setNow(Date.now()) }
-    }
+    const load = () => api.get<{ room_id: string; reading: StoredReading | null }[]>('/sensors/latest')
+      .then(r => {
+        if (cancelled) return
+        setLatest(Object.fromEntries((r.data ?? []).map(x => [x.room_id, x.reading])))
+        setNow(Date.now())
+        setError(null)
+      })
+      .catch(err => { if (!cancelled) setError(getApiErrorDetail(err) ?? 'No se pudieron cargar las lecturas.') })
+      .finally(() => { if (!cancelled) setLoading(false) })
     load()
     const t = setInterval(load, POLL_MS)
     return () => { cancelled = true; clearInterval(t) }
-  }, [rooms])
+  }, [])
 
-  const rows = useMemo<RoomRow[]>(() => {
-    const q = query.trim().toLowerCase()
-    return rooms
-      .filter(r => !q || r.name.toLowerCase().includes(q) || r.id.toLowerCase().includes(q))
-      .map(room => ({ room, latest: latest[room.id] ?? null }))
-      // Alerts first, then the most recently updated rooms.
-      .sort((a, b) =>
-        LEVEL_RANK[roomLevel(b)] - LEVEL_RANK[roomLevel(a)] ||
-        (b.latest ? parseUtc(b.latest.timestamp).getTime() : 0) - (a.latest ? parseUtc(a.latest.timestamp).getTime() : 0),
-      )
-  }, [rooms, latest, query])
-
-  const all = rooms.map(room => ({ room, latest: latest[room.id] ?? null }))
-  const liveCount = all.filter(r => r.latest && (now - parseUtc(r.latest.timestamp).getTime()) / 1000 < LIVE_SECONDS).length
-  const alertRooms = all.filter(r => roomLevel(r) === 'alerta')
+  const all = useMemo(() => rooms.map(r => classify(r, latest[r.id] ?? null, now)), [rooms, latest, now])
+  const counts = useMemo(
+    () => Object.fromEntries(ORDER.map(s => [s, all.filter(r => r.status === s).length])) as Record<Status, number>,
+    [all],
+  )
+  const visibleIds = new Set(filter.filtered.map(r => r.id))
+  const rows = all.filter(r => visibleIds.has(r.room.id) && (!statusFilter || r.status === statusFilter))
+  const attention = rows
+    .filter(r => r.status === 'alert' || r.status === 'warn')
+    .sort((a, b) => (a.status === b.status ? 0 : a.status === 'alert' ? -1 : 1))
+  const groups = groupRooms(rows)
+  const expandAll = filter.active || !!statusFilter || groups.length === 1
+  const buildingsCount = new Set(rooms.map(r => r.building ?? '')).size
+  const MAX_CARDS = 12
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Resumen"
         subtitle={<>
-          <span>{rooms.length} aulas</span>
+          <span>{rooms.length} aulas en {buildingsCount} {buildingsCount === 1 ? 'edificio' : 'edificios'}</span>
           <span>·</span>
-          <span>{liveCount} en vivo</span>
+          <span>se actualiza cada {POLL_MS / 1000} s</span>
         </>}
-      >
-        <label className="relative">
-          <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-          <input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Buscar aula…"
-            className="field w-48 pl-8"
-          />
-        </label>
-      </PageHeader>
-
-      {/* 1 · Alerts */}
-      {realEmergencies.length > 0 || alertRooms.length > 0 ? (
-        <Card className="border-red-500/40">
-          <div className="flex flex-wrap items-center gap-2 text-sm text-red-200">
-            <AlertTriangle size={16} className="text-red-400" />
-            <span className="font-semibold">Alertas activas:</span>
-            {realEmergencies.map(e => (
-              <Link key={e.sensor_id} to={`/room/${e.room_id}`}><Chip tone="alert">{e.room_id} · CO {e.co_ppm.toFixed(0)} ppm</Chip></Link>
-            ))}
-            {alertRooms.filter(r => !realEmergencies.some(e => e.room_id === r.room.id)).map(r => (
-              <Link key={r.room.id} to={`/room/${r.room.id}`}><Chip tone="alert">{r.room.id} · {alertReason(r)}</Chip></Link>
-            ))}
-          </div>
-        </Card>
-      ) : (
-        <p className="flex items-center gap-2 text-xs text-slate-400">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Sin alertas activas
-        </p>
-      )}
+      />
 
       {error && <Card className="border-red-500/40 text-sm text-red-300">{error}</Card>}
 
-      {/* 2 · Rooms */}
+      {/* 1 · Overview: counters double as status filters */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {ORDER.map(s => (
+          <Counter key={s} status={s} count={counts[s] ?? 0} active={statusFilter === s} onClick={() => setStatusFilter(f => (f === s ? null : s))} />
+        ))}
+      </div>
+
+      {/* 2 · Filter */}
+      <RoomFilters rooms={rooms} state={filter.state} onChange={filter.setState}>
+        {(filter.active || statusFilter) && (
+          <button className="btn btn-ghost" onClick={() => { filter.setState({ query: '', building: '', floor: '' }); setStatusFilter(null) }}>
+            Limpiar filtros
+          </button>
+        )}
+        <span className="ml-auto text-xs text-slate-400">{rows.length} de {rooms.length} aulas</span>
+      </RoomFilters>
+
       {loading ? (
         <p className="flex items-center gap-2 py-12 text-sm text-slate-400"><RefreshCw size={14} className="animate-spin" /> Cargando aulas…</p>
-      ) : rows.length === 0 ? (
-        <p className="py-12 text-center text-sm text-slate-400">
-          {query ? `Ningún aula coincide con "${query}".` : 'No hay aulas registradas. Créalas en Infraestructura.'}
-        </p>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-          {rows.map(r => <RoomCard key={r.room.id} row={r} now={now} />)}
-        </div>
-      )}
+      ) : <>
+        {/* 3 · Details on demand: only what needs attention gets a card */}
+        {(!statusFilter || statusFilter === 'alert' || statusFilter === 'warn') && (
+          <section>
+            <h2 className="section-title mb-2">Requieren atención · {attention.length}</h2>
+            {attention.length === 0
+              ? <p className="text-sm text-slate-400">Ninguna aula requiere atención{filter.active ? ' con estos filtros' : ''}.</p>
+              : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  {attention.slice(0, MAX_CARDS).map(r => <AttentionCard key={r.room.id} row={r} now={now} />)}
+                </div>
+              )}
+            {attention.length > MAX_CARDS && (
+              <p className="mt-2 text-xs text-slate-400">Y {attention.length - MAX_CARDS} más en la tabla de abajo.</p>
+            )}
+          </section>
+        )}
+
+        <section>
+          <h2 className="section-title mb-2">Todas las aulas</h2>
+          {rows.length === 0 ? (
+            <p className="text-sm text-slate-400">Ningún aula coincide con los filtros.</p>
+          ) : (
+            <div className="space-y-2">
+              {groups.map(g => {
+                const groupRows = g.floors.flatMap(f => f.items)
+                const isOpen = expandAll || !!open[g.building]
+                const c = (s: Status) => groupRows.filter(r => r.status === s).length
+                return (
+                  <div key={g.building} className="surface overflow-hidden">
+                    <button
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-slate-800/40"
+                      onClick={() => setOpen(o => ({ ...o, [g.building]: !isOpen }))}
+                      aria-expanded={isOpen}
+                    >
+                      {isOpen ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />}
+                      <span className="text-sm font-semibold text-white">{buildingLabel(g.building || null)}</span>
+                      <span className="text-xs text-slate-400">{groupRows.length} aulas</span>
+                      <span className="ml-auto flex flex-wrap justify-end gap-1.5">
+                        {c('alert') > 0 && <Chip tone="alert">{c('alert')} en alerta</Chip>}
+                        {c('warn') > 0 && <Chip tone="warn">{c('warn')} en atención</Chip>}
+                        {c('nodata') > 0 && <Chip>{c('nodata')} sin datos</Chip>}
+                        {c('alert') + c('warn') === 0 && c('ok') > 0 && <Chip tone="ok">Todo normal</Chip>}
+                      </span>
+                    </button>
+                    {isOpen && (
+                      <div className="overflow-x-auto border-t border-slate-800">
+                        <table className="w-full min-w-[640px]">
+                          <thead>
+                            <tr className="table-head">
+                              <th className="py-2 pl-3 pr-4 font-normal">Aula</th>
+                              <th className="py-2 pr-4 font-normal">Temp.</th>
+                              <th className="py-2 pr-4 font-normal">CO₂ (ppm)</th>
+                              <th className="py-2 pr-4 font-normal">CO (ppm)</th>
+                              <th className="py-2 pr-4 font-normal">Estado</th>
+                              <th className="py-2 pr-3 text-right font-normal">Última lectura</th>
+                            </tr>
+                          </thead>
+                          {g.floors.map(f => (
+                            <tbody key={String(f.floor)}>
+                              <tr><td colSpan={6} className="bg-slate-950/40 px-3 py-1 text-xs text-slate-500">{floorLabel(f.floor)}</td></tr>
+                              {f.items.map(r => <RoomRow key={r.room.id} row={r} now={now} />)}
+                            </tbody>
+                          ))}
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
+      </>}
     </div>
   )
 }
