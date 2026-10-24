@@ -58,17 +58,13 @@ interface TabBarProps {
 
 function TabBar({ active, onChange, tabs }: TabBarProps) {
   return (
-    <div className="flex gap-0.5 bg-slate-900/60 border border-slate-700/60 rounded-lg p-0.5">
+    <div className="segmented p-0.5">
       {tabs.map(t => (
         <button
           key={t.key}
           type="button"
           onClick={() => onChange(t.key)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-            active === t.key
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
+          className={`segmented-item text-xs ${active === t.key ? 'segmented-item-active' : ''}`}
         >
           {t.icon} {t.label}
         </button>
@@ -393,27 +389,26 @@ export default function Infrastructure() {
   }))
   const currentDevice = devices.find(d => d.sensor_id === editSensorId) ?? null
 
-  const inputCls = "w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition placeholder-slate-500"
+  const inputCls = "field"
   const numInputCls = `${inputCls} ${NUM_INPUT_MODS}`
-  const labelCls = "block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide"
+  const labelCls = "field-label"
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
 
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Building2 size={22} className="text-blue-400" />
         <div>
-          <h1 className="text-xl font-bold text-white">Gestión de Infraestructura</h1>
-          <p className="text-sm text-slate-400">Aprovisionamiento y configuración de aulas y sensores IoT</p>
+          <h1 className="page-title">Infraestructura</h1>
+          <p className="mt-1 text-xs text-slate-400">Aprovisionamiento y configuración de aulas y sensores IoT</p>
         </div>
       </div>
 
       {/* Toast */}
       {toast && (
-        <div className={`flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm ${
+        <div className={`flex items-center justify-between gap-3 rounded-lg px-4 py-3 text-sm ${
           toast.type === 'success'
             ? 'bg-emerald-900/40 border border-emerald-500/40 text-emerald-300'
             : 'bg-red-900/40 border border-red-500/40 text-red-300'
@@ -436,15 +431,15 @@ export default function Infrastructure() {
         </div>
       ) : (
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 lg:items-stretch lg:h-[calc(100vh-7rem)] lg:min-h-[calc(100vh-7rem)] lg:max-h-[calc(100vh-7rem)]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
 
           {/* ── Left column: Aulas ───────────────────────────────────────────── */}
-          <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden flex flex-col h-full">
+          <div className="surface overflow-hidden flex flex-col h-full">
 
             {/* Card header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
               <h2 className="flex items-center gap-2 text-slate-100 text-sm font-semibold">
-                <Building2 size={15} className="text-blue-400 shrink-0" />
+                <Building2 size={15} className="text-slate-400 shrink-0" />
                 Aulas
                 <span className="text-slate-500 font-normal text-xs">(Infraestructura Física)</span>
               </h2>
@@ -503,7 +498,7 @@ export default function Infrastructure() {
                   </div>
                   <div className="pt-4 border-t border-slate-700/50 flex justify-end">
                     <button type="submit" disabled={roomSubmitting}
-                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors"
+                      className="btn btn-primary"
                     >
                       {roomSubmitting
                         ? <><RefreshCw size={13} className="animate-spin" /> Guardando…</>
@@ -585,7 +580,7 @@ export default function Infrastructure() {
                       </button>
                     ) : <span />}
                     <button type="submit" disabled={!editRoomId || roomSubmitting}
-                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors"
+                      className="btn btn-primary"
                     >
                       {roomSubmitting
                         ? <><RefreshCw size={13} className="animate-spin" /> Procesando…</>
@@ -599,12 +594,12 @@ export default function Infrastructure() {
           </div>
 
           {/* ── Right column: Sensores ───────────────────────────────────────── */}
-          <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden flex flex-col h-full">
+          <div className="surface overflow-hidden flex flex-col h-full">
 
             {/* Card header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
               <h2 className="flex items-center gap-2 text-slate-100 text-sm font-semibold">
-                <Cpu size={15} className="text-blue-400 shrink-0" />
+                <Cpu size={15} className="text-slate-400 shrink-0" />
                 Sensores
                 <span className="text-slate-500 font-normal text-xs">(Hardware IoT)</span>
               </h2>
@@ -661,7 +656,7 @@ export default function Infrastructure() {
                   <div className="pt-4 border-t border-slate-700/50 flex justify-end">
                     <button type="submit"
                       disabled={sensorSubmitting || !regSensorForm.room_id || rooms.length === 0}
-                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors"
+                      className="btn btn-primary"
                     >
                       {sensorSubmitting
                         ? <><RefreshCw size={13} className="animate-spin" /> Guardando…</>
@@ -696,7 +691,7 @@ export default function Infrastructure() {
 
                         {/* Current assignment */}
                         <div className="bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3">
-                          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Aula actual</p>
+                          <p className="text-xs text-slate-500 mb-1">Aula actual</p>
                           <p className="text-slate-200 font-medium text-sm">
                             {currentDevice?.room_name ?? currentDevice?.room_id ?? '—'}
                             {currentDevice?.room_name && (
@@ -744,7 +739,7 @@ export default function Infrastructure() {
                     ) : <span />}
                     <button type="submit"
                       disabled={!editSensorId || sensorSubmitting || ((editSensorRoomId || null) === (currentDevice?.room_id ?? null) && editSensorNewId.trim() === editSensorId)}
-                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors"
+                      className="btn btn-primary"
                     >
                       {sensorSubmitting
                         ? <><RefreshCw size={13} className="animate-spin" /> Procesando…</>
@@ -763,10 +758,10 @@ export default function Infrastructure() {
       {/* ── Modal: Confirmar edición de aula ──────────────────────────────── */}
       {editRoomModalOpen && pendingRoom && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl">
+          <div className="surface rounded-lg shadow-2xl w-full max-w-2xl">
 
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
-              <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                 <Pencil size={16} className="text-blue-400" /> Confirmar Actualización de Aula
               </h3>
               <button onClick={() => setEditRoomModalOpen(false)}
@@ -777,8 +772,8 @@ export default function Infrastructure() {
             </div>
 
             <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-slate-700/40 border border-slate-600/50 rounded-xl p-4 space-y-4">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+              <div className="surface-inset p-4 space-y-4">
+                <p className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-slate-500 inline-block" /> Datos Actuales
                 </p>
                 <DataRow label="ID"                   value={pendingRoom.original.id} />
@@ -786,8 +781,8 @@ export default function Infrastructure() {
                 <DataRow label="Capacidad"            value={`${pendingRoom.original.max_capacity} personas`} />
                 <DataRow label="Temperatura Objetivo" value={`${pendingRoom.original.target_temp} °C`} />
               </div>
-              <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-4 space-y-4">
-                <p className="text-xs font-semibold text-blue-400 uppercase tracking-wide flex items-center gap-1.5">
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 space-y-4">
+                <p className="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> Nuevos Datos
                 </p>
                 <DataRow
@@ -809,8 +804,8 @@ export default function Infrastructure() {
 
             {/* Cascade-impact options — only when ID is being renamed */}
             {pendingRoom && !!pendingRoom.form.new_id && pendingRoom.form.new_id !== pendingRoom.original.id && (
-              <div className="mx-6 mb-4 bg-amber-950/40 border border-amber-700/50 rounded-xl px-4 py-3 space-y-3">
-                <p className="text-xs font-semibold text-amber-400 uppercase tracking-wide flex items-center gap-1.5">
+              <div className="mx-6 mb-4 bg-amber-950/40 border border-amber-700/50 rounded-lg px-4 py-3 space-y-3">
+                <p className="text-xs font-semibold text-amber-400 flex items-center gap-1.5">
                   <TriangleAlert size={12} className="shrink-0" /> Actualización en cascada del cambio de ID
                 </p>
                 <p className="text-xs text-amber-300/70 leading-relaxed">
@@ -856,7 +851,7 @@ export default function Infrastructure() {
                 Cancelar
               </button>
               <button type="button" onClick={confirmEditRoom} disabled={roomSubmitting}
-                className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg transition-colors"
+                className="btn btn-primary"
               >
                 {roomSubmitting
                   ? <><RefreshCw size={13} className="animate-spin" /> Actualizando…</>
@@ -870,10 +865,10 @@ export default function Infrastructure() {
       {/* ── Modal: Eliminar Aula ──────────────────────────────────────────── */}
       {deleteRoomModalOpen && editRoomId && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-red-900/60 rounded-2xl shadow-2xl w-full max-w-lg">
+          <div className="bg-slate-900 border border-red-900/60 rounded-xl shadow-2xl w-full max-w-lg">
 
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-              <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                 <Trash2 size={16} className="text-red-500" /> Eliminar Aula Permanentemente
               </h3>
               <button onClick={() => setDeleteRoomModalOpen(false)}
@@ -886,7 +881,7 @@ export default function Infrastructure() {
             <div className="px-6 py-5 space-y-5">
 
               {/* Impact — orphan info */}
-              <div className="flex items-start gap-3 bg-red-950/50 border border-red-800/50 rounded-xl px-4 py-3">
+              <div className="flex items-start gap-3 bg-red-950/50 border border-red-800/50 rounded-lg px-4 py-3">
                 <TriangleAlert size={16} className="text-red-400 shrink-0 mt-0.5" />
                 {impactLoading ? (
                   <p className="text-sm text-slate-400 flex items-center gap-2">
@@ -899,13 +894,13 @@ export default function Infrastructure() {
                     </p>
                     {(roomImpact?.reservations_count ?? 0) > 0 && (
                       <p className="text-amber-300">
-                        <span className="font-bold">{roomImpact!.reservations_count} reserva{roomImpact!.reservations_count !== 1 ? 's' : ''}</span>{' '}
+                        <span className="font-semibold">{roomImpact!.reservations_count} reserva{roomImpact!.reservations_count !== 1 ? 's' : ''}</span>{' '}
                         quedarán como registros históricos huérfanos (auditoría).
                       </p>
                     )}
                     {(roomImpact?.sensors_count ?? 0) > 0 && (
                       <p className="text-amber-300">
-                        <span className="font-bold">{roomImpact!.sensors_count} sensor{roomImpact!.sensors_count !== 1 ? 'es' : ''}</span>{' '}
+                        <span className="font-semibold">{roomImpact!.sensors_count} sensor{roomImpact!.sensors_count !== 1 ? 'es' : ''}</span>{' '}
                         quedarán sin asignación de aula (hardware IoT preservado).
                       </p>
                     )}
@@ -918,7 +913,7 @@ export default function Infrastructure() {
 
               {/* Confirmation input */}
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
+                <label className="field-label">
                   Escribe el ID del aula para confirmar
                 </label>
                 <input
@@ -926,14 +921,14 @@ export default function Infrastructure() {
                   placeholder={editRoomId}
                   value={deleteRoomConfirm}
                   onChange={e => setDeleteRoomConfirm(e.target.value)}
-                  className="w-full bg-black border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/50 transition placeholder-slate-600 font-mono"
+                  className="field font-mono focus:border-red-500 focus:ring-red-500/40"
                 />
               </div>
             </div>
 
             <div className="flex items-center justify-end gap-3 px-6 pb-5">
               <button type="button" onClick={() => setDeleteRoomModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-slate-700"
+                className="btn btn-secondary"
               >
                 Cancelar
               </button>
@@ -941,7 +936,7 @@ export default function Infrastructure() {
                 type="button"
                 onClick={confirmDeleteRoom}
                 disabled={roomSubmitting || deleteRoomConfirm !== editRoomId}
-                className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-red-700 hover:bg-red-600 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed rounded-lg transition-colors"
+                className="btn btn-danger"
               >
                 {roomSubmitting
                   ? <><RefreshCw size={13} className="animate-spin" /> Eliminando…</>
@@ -955,10 +950,10 @@ export default function Infrastructure() {
       {/* ── Modal: Confirmar reasignación de sensor ───────────────────────── */}
       {editSensorModalOpen && pendingSensor && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl">
+          <div className="surface rounded-lg shadow-2xl w-full max-w-2xl">
 
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
-              <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                 <Radio size={16} className="text-blue-400" /> Confirmar Reasignación de Sensor
               </h3>
               <button onClick={() => setEditSensorModalOpen(false)}
@@ -969,16 +964,16 @@ export default function Infrastructure() {
             </div>
 
             <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-slate-700/40 border border-slate-600/50 rounded-xl p-4 space-y-4">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+              <div className="surface-inset p-4 space-y-4">
+                <p className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-slate-500 inline-block" /> Asignación Actual
                 </p>
                 <DataRow label="Sensor ID"    value={pendingSensor.original.sensor_id} />
                 <DataRow label="Aula Asignada" value={pendingSensor.original.room_name ?? pendingSensor.original.room_id ?? '(Sin asignar)'} />
                 <DataRow label="Estado"        value={pendingSensor.original.is_active ? 'Activo' : 'Inactivo'} />
               </div>
-              <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-4 space-y-4">
-                <p className="text-xs font-semibold text-blue-400 uppercase tracking-wide flex items-center gap-1.5">
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 space-y-4">
+                <p className="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> Nueva Asignación
                 </p>
                 <DataRow
@@ -1002,7 +997,7 @@ export default function Infrastructure() {
                 Cancelar
               </button>
               <button type="button" onClick={confirmEditSensor} disabled={sensorSubmitting}
-                className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg transition-colors"
+                className="btn btn-primary"
               >
                 {sensorSubmitting
                   ? <><RefreshCw size={13} className="animate-spin" /> Actualizando…</>
@@ -1016,10 +1011,10 @@ export default function Infrastructure() {
       {/* ── Modal: Eliminar Sensor ────────────────────────────────────────── */}
       {deleteSensorModalOpen && editSensorId && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-red-900/60 rounded-2xl shadow-2xl w-full max-w-md">
+          <div className="bg-slate-900 border border-red-900/60 rounded-xl shadow-2xl w-full max-w-md">
 
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-              <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                 <Trash2 size={16} className="text-red-500" /> Eliminar Sensor Permanentemente
               </h3>
               <button onClick={() => setDeleteSensorModalOpen(false)}
@@ -1030,7 +1025,7 @@ export default function Infrastructure() {
             </div>
 
             <div className="px-6 py-5 space-y-5">
-              <div className="flex items-start gap-3 bg-red-950/50 border border-red-800/50 rounded-xl px-4 py-3">
+              <div className="flex items-start gap-3 bg-red-950/50 border border-red-800/50 rounded-lg px-4 py-3">
                 <TriangleAlert size={16} className="text-red-400 shrink-0 mt-0.5" />
                 <p className="text-sm text-red-300 leading-relaxed">
                   <strong>Advertencia:</strong> El sensor{' '}
@@ -1041,7 +1036,7 @@ export default function Infrastructure() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
+                <label className="field-label">
                   Escribe el ID del sensor físico para confirmar
                 </label>
                 <input
@@ -1049,14 +1044,14 @@ export default function Infrastructure() {
                   placeholder={editSensorId}
                   value={deleteSensorConfirm}
                   onChange={e => setDeleteSensorConfirm(e.target.value)}
-                  className="w-full bg-black border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/50 transition placeholder-slate-600 font-mono"
+                  className="field font-mono focus:border-red-500 focus:ring-red-500/40"
                 />
               </div>
             </div>
 
             <div className="flex items-center justify-end gap-3 px-6 pb-5">
               <button type="button" onClick={() => setDeleteSensorModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-slate-700"
+                className="btn btn-secondary"
               >
                 Cancelar
               </button>
@@ -1064,7 +1059,7 @@ export default function Infrastructure() {
                 type="button"
                 onClick={confirmDeleteSensor}
                 disabled={sensorSubmitting || deleteSensorConfirm !== editSensorId}
-                className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-red-700 hover:bg-red-600 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed rounded-lg transition-colors"
+                className="btn btn-danger"
               >
                 {sensorSubmitting
                   ? <><RefreshCw size={13} className="animate-spin" /> Eliminando…</>
@@ -1078,10 +1073,10 @@ export default function Infrastructure() {
       {/* ── Modal: Herencia de huérfanos al registrar aula ───────────────── */}
       {orphanWarningOpen && orphanData && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-amber-700/60 rounded-2xl shadow-2xl w-full max-w-lg">
+          <div className="bg-slate-900 border border-amber-700/60 rounded-xl shadow-2xl w-full max-w-lg">
 
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-              <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                 <TriangleAlert size={16} className="text-amber-400" /> Historial Persistente Detectado
               </h3>
               <button
@@ -1094,20 +1089,20 @@ export default function Infrastructure() {
 
             <div className="px-6 py-5 space-y-5">
 
-              <div className="bg-amber-950/40 border border-amber-700/50 rounded-xl px-4 py-4 space-y-2">
+              <div className="bg-amber-950/40 border border-amber-700/50 rounded-lg px-4 py-4 space-y-2">
                 <p className="text-sm text-amber-200 leading-relaxed">
-                  <span className="font-bold text-amber-300">⚠ ATENCIÓN:</span>{' '}
+                  <span className="font-semibold text-amber-300">⚠ ATENCIÓN:</span>{' '}
                   El ID de aula{' '}
                   <span className="font-mono text-white bg-slate-800 px-1.5 py-0.5 rounded text-xs">{regRoomForm.id.trim()}</span>{' '}
                   cuenta con historial persistente en el sistema.
                 </p>
                 <div className="flex gap-4 pt-1">
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="font-bold text-amber-300">{orphanData.reservations_count}</span>
+                    <span className="font-semibold text-amber-300">{orphanData.reservations_count}</span>
                     <span className="text-amber-200/70">reserva{orphanData.reservations_count !== 1 ? 's' : ''} huérfana{orphanData.reservations_count !== 1 ? 's' : ''}</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="font-bold text-amber-300">{orphanData.sensors_count}</span>
+                    <span className="font-semibold text-amber-300">{orphanData.sensors_count}</span>
                     <span className="text-amber-200/70">sensor{orphanData.sensors_count !== 1 ? 'es' : ''} huérfano{orphanData.sensors_count !== 1 ? 's' : ''}</span>
                   </div>
                 </div>
@@ -1117,7 +1112,7 @@ export default function Infrastructure() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
+                <label className="field-label">
                   Escribe el ID del aula para confirmar la re-asociación o modifica el ID en el formulario anterior para evitarlo
                 </label>
                 <input
@@ -1136,7 +1131,7 @@ export default function Infrastructure() {
               <button
                 type="button"
                 onClick={() => { setOrphanWarningOpen(false); setOrphanData(null) }}
-                className="px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-slate-700"
+                className="btn btn-secondary"
               >
                 Cancelar — modificar ID
               </button>

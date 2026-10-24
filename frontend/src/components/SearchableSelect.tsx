@@ -121,7 +121,7 @@ export default function SearchableSelect({
   return (
     <div>
       {label && (
-        <p className="text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
+        <p className="field-label">
           {label}
         </p>
       )}
@@ -165,7 +165,7 @@ export default function SearchableSelect({
             id={listId}
             role="listbox"
             style={{ maxHeight: `${maxVisibleItems * ITEM_HEIGHT}px` }}
-            className="absolute z-50 left-0 right-0 mt-1 bg-slate-900 border border-slate-600 rounded-lg shadow-2xl overflow-y-auto overscroll-contain"
+            className="surface absolute z-50 left-0 right-0 mt-1 shadow-2xl overflow-y-auto overscroll-contain"
           >
             {filtered.map((opt, idx) => (
               <li
@@ -190,7 +190,7 @@ export default function SearchableSelect({
         )}
 
         {open && inputText.trim() && filtered.length === 0 && (
-          <div className="absolute z-50 left-0 right-0 mt-1 bg-slate-900 border border-slate-600 rounded-lg shadow-xl px-3 py-3 text-sm text-slate-500">
+          <div className="surface absolute z-50 left-0 right-0 mt-1 shadow-xl px-3 py-3 text-sm text-slate-500">
             Sin resultados para "{inputText}"
           </div>
         )}

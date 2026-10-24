@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Cpu, CalendarDays, FlaskConical,
-  Users, LogOut, ChevronRight, Building, TrendingUp,
+  Users, LogOut, Building, TrendingUp,
   AlertTriangle, X, ShieldAlert, Menu, Clock, ChevronDown,
 } from 'lucide-react'
 import axios from 'axios'
@@ -135,15 +135,15 @@ export default function Layout() {
 
   const modalBody = showReal
     ? <>
-        <span className="font-bold text-red-300">Peligro de intoxicación.</span>{' '}
+        <span className="font-semibold text-red-300">Peligro de intoxicación.</span>{' '}
         Niveles de Monóxido de Carbono (CO) mayores a{' '}
-        <span className="font-bold text-red-300">50 ppm</span>{' '}
+        <span className="font-semibold text-red-300">50 ppm</span>{' '}
         detectados en las siguientes aulas:
       </>
     : <>
-        Se ha detectado un pico <span className="font-bold text-orange-300">sintético</span> de CO
+        Se ha detectado un pico <span className="font-semibold text-orange-300">sintético</span> de CO
         en las siguientes aulas. Esta alerta es una{' '}
-        <span className="font-bold text-orange-300">prueba del sistema cognitivo</span> y
+        <span className="font-semibold text-orange-300">prueba del sistema cognitivo</span> y
         desaparecerá al salir de Simulación.
       </>
 
@@ -159,7 +159,7 @@ export default function Layout() {
   }
 
   return (
-    <div className="h-[100dvh] bg-slate-900 text-slate-100 overflow-hidden">
+    <div className="h-[100dvh] bg-slate-950 text-slate-100 overflow-hidden">
 
       {/* ── Session expired modal — highest priority, blocks all interaction ── */}
       {isSessionExpired && (
@@ -168,14 +168,14 @@ export default function Layout() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="session-expired-title"
-            className="bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl w-full max-w-md"
+            className="surface rounded-lg shadow-2xl w-full max-w-md"
           >
             <div className="flex flex-col items-center px-8 py-8 gap-5 text-center">
-              <div className="flex items-center justify-center w-16 h-16 rounded-full bg-yellow-500/15 border border-yellow-500/30">
-                <ShieldAlert size={32} className="text-yellow-400" />
+              <div className="flex items-center justify-center w-16 h-16 rounded-full bg-amber-500/15 border border-amber-500/30">
+                <ShieldAlert size={32} className="text-amber-400" />
               </div>
               <div className="space-y-2">
-                <h2 id="session-expired-title" className="text-lg font-bold text-slate-100">Sesión caducada</h2>
+                <h2 id="session-expired-title" className="text-sm font-semibold text-slate-100">Sesión caducada</h2>
                 <p className="text-sm text-slate-400 leading-relaxed">
                   Tu sesión ha caducado o el servidor ha sido reiniciado.
                   Por seguridad, debes volver a autenticarte.
@@ -184,7 +184,7 @@ export default function Layout() {
               <button
                 onClick={handleGoToLogin}
                 autoFocus
-                className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm px-6 py-3 rounded-xl transition-colors"
+                className="btn btn-primary w-full"
               >
                 Ir al Login
               </button>
@@ -210,14 +210,14 @@ export default function Layout() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="emergency-modal-title"
-            className={`border-2 rounded-2xl shadow-2xl w-full max-w-lg ${modalBg}`}
+            className={`border-2 rounded-xl shadow-2xl w-full max-w-lg ${modalBg}`}
           >
 
             {/* Header */}
             <div className={`flex items-center justify-between px-6 pt-6 pb-4 border-b ${modalHeaderBdr}`}>
               <div className="flex items-center gap-3">
                 <AlertTriangle size={28} className={`${modalIconColor} animate-pulse shrink-0`} />
-                <h2 id="emergency-modal-title" className={`text-lg font-bold uppercase tracking-wide ${modalTitleColor}`}>
+                <h2 id="emergency-modal-title" className={`text-sm font-semibold ${modalTitleColor}`}>
                   {modalTitle}
                 </h2>
               </div>
@@ -234,7 +234,7 @@ export default function Layout() {
             <div className="px-6 py-5 space-y-4">
               <p className="text-slate-200 text-sm leading-relaxed">{modalBody}</p>
 
-              <div className={`border rounded-xl divide-y ${modalRowBg}`}>
+              <div className={`border rounded-lg divide-y ${modalRowBg}`}>
                 {activeEntries.map(e => (
                   <div key={e.sensor_id} className="flex items-center justify-between px-4 py-3">
                     <span className="font-semibold text-slate-100">{e.sensor_id}</span>
@@ -255,7 +255,7 @@ export default function Layout() {
               <button
                 onClick={dismissPopup}
                 autoFocus
-                className={`flex items-center gap-2 text-white font-bold text-sm px-6 py-2.5 rounded-xl transition-colors ${modalBtnBg}`}
+                className={`flex items-center gap-2 text-white font-semibold text-sm px-6 py-2.5 rounded-lg transition-colors ${modalBtnBg}`}
               >
                 <AlertTriangle size={15} />
                 {showReal ? 'Confirmar Alerta' : 'Entendido'}
@@ -275,7 +275,7 @@ export default function Layout() {
       )}
 
       {/* ── Navbar — fixed, full-width top bar (52px) ── */}
-      <header className="fixed top-0 left-0 right-0 z-50 h-[52px] flex items-center justify-between px-5 bg-[#0a1520] border-b border-slate-700">
+      <header className="fixed top-0 left-0 right-0 z-50 h-[52px] flex items-center justify-between px-5 bg-slate-900 border-b border-slate-800">
         {/* Left — hamburger (mobile) + logo + name */}
         <div className="flex items-center gap-2.5">
           <button
@@ -285,10 +285,10 @@ export default function Layout() {
           >
             <Menu size={20} />
           </button>
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600/15 border border-blue-500/30">
+          <div className="flex items-center justify-center w-8 h-8">
             <Logo size={22} />
           </div>
-          <span className="font-bold text-sm text-white leading-tight">
+          <span className="font-semibold text-sm text-white leading-tight">
             Climate <span className="text-blue-400">Cognitive</span>
           </span>
         </div>
@@ -320,7 +320,7 @@ export default function Layout() {
           </span>
 
           {/* Vertical separator */}
-          <span className="hidden sm:block w-px h-[18px] bg-[#2a4060]" />
+          <span className="hidden sm:block w-px h-[18px] bg-slate-700" />
 
           {/* User chip + dropdown */}
           <div className="relative" ref={userMenuRef}>
@@ -328,7 +328,7 @@ export default function Layout() {
               onClick={() => setUserMenuOpen(o => !o)}
               className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-slate-700/60 transition-colors"
             >
-              <div className="w-7 h-7 rounded-full bg-blue-600/30 flex items-center justify-center text-xs font-bold text-blue-300">
+              <div className="w-7 h-7 rounded-full bg-blue-600/30 flex items-center justify-center text-xs font-semibold text-blue-300">
                 {user?.username?.[0]?.toUpperCase() ?? '?'}
               </div>
               <span className="hidden sm:block text-sm font-medium text-slate-200 max-w-[120px] truncate">{user?.username}</span>
@@ -336,10 +336,10 @@ export default function Layout() {
             </button>
 
             {userMenuOpen && (
-              <div className="absolute right-0 top-full mt-2 w-52 bg-slate-800 border border-slate-700 rounded-lg shadow-2xl overflow-hidden z-50">
+              <div className="surface absolute right-0 top-full mt-2 w-52 shadow-2xl overflow-hidden z-50">
                 {/* Perfil — user info */}
                 <div className="flex items-center gap-2.5 px-3 py-3">
-                  <div className="w-8 h-8 rounded-full bg-blue-600/30 flex items-center justify-center text-sm font-bold text-blue-300">
+                  <div className="w-8 h-8 rounded-full bg-blue-600/30 flex items-center justify-center text-sm font-semibold text-blue-300">
                     {user?.username?.[0]?.toUpperCase() ?? '?'}
                   </div>
                   <div className="min-w-0">
@@ -355,7 +355,7 @@ export default function Layout() {
 
       {/* ── Sidebar — fixed below navbar, navigation only ── */}
       <aside
-        className={`fixed top-[52px] left-0 z-40 w-64 lg:w-56 h-[calc(100dvh-52px)] flex flex-col bg-slate-800 border-r border-slate-700 transform transition-transform duration-200 ease-out lg:translate-x-0 ${
+        className={`fixed top-[52px] left-0 z-40 w-64 lg:w-56 h-[calc(100dvh-52px)] flex flex-col bg-slate-900 border-r border-slate-800 transform transition-transform duration-200 ease-out lg:translate-x-0 ${
           mobileNavOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -380,14 +380,14 @@ export default function Layout() {
                   className={({ isActive }) =>
                     `group flex items-center gap-3 px-3 py-2 rounded-lg text-sm border transition-colors ${
                       isActive || (item.to === '/' && location.pathname.startsWith('/room/'))
-                        ? 'bg-blue-600/20 text-blue-300 border-blue-500/30'
-                        : 'text-slate-400 border-transparent hover:bg-slate-700 hover:text-white hover:border-slate-600/70'
+                        ? 'bg-slate-800 text-white border-transparent'
+                        : 'text-slate-400 border-transparent hover:bg-slate-800/60 hover:text-white'
                     }`
                   }
                 >
                   {item.icon}
                   <span className="flex-1">{item.label}</span>
-                  <ChevronRight size={13} className="opacity-30 transition-all group-hover:opacity-100 group-hover:translate-x-0.5" />
+                  
                 </NavLink>
               ))}
             </div>
@@ -395,7 +395,7 @@ export default function Layout() {
         </nav>
 
         {/* Footer — logout */}
-        <div className="px-3 pb-4 pt-3 border-t border-slate-700">
+        <div className="px-3 pb-4 pt-3 border-t border-slate-800">
           <button
             onClick={handleLogout}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-red-400 hover:bg-red-900/20 transition-colors"
@@ -412,7 +412,7 @@ export default function Layout() {
 
       {/* ── Persistent emergency button (bottom-right, left of FloatingChat) ── */}
       {isAnyVisible && (
-        <div className="fixed bottom-6 right-24 z-40 group">
+        <div className="fixed bottom-6 right-20 z-40 group">
           <button
             onClick={reopenPopup}
             className={`w-12 h-12 rounded-full text-white flex items-center justify-center animate-pulse shadow-lg transition-colors ${iconBg}`}
@@ -421,7 +421,7 @@ export default function Layout() {
             <AlertTriangle size={22} />
           </button>
           {/* Tooltip */}
-          <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block bg-slate-900 border border-slate-600 text-slate-200 text-xs rounded-lg px-3 py-2 whitespace-nowrap shadow-xl pointer-events-none">
+          <div className="surface absolute bottom-full right-0 mb-2 hidden group-hover:block text-slate-200 text-xs px-3 py-2 whitespace-nowrap shadow-xl pointer-events-none">
             {tooltipText}
           </div>
         </div>

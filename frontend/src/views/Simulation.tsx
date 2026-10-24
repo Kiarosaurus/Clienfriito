@@ -6,7 +6,7 @@ import { useEmergency } from '../context/EmergencyContext'
 import type { ReadingInput, SensorReadingResponse } from '../types'
 import { levelTemp, levelHumedad, levelCO2, levelCO } from '../utils/sensorColors'
 import {
-  Card, Chip, Kpi, PageHeader, AI_STATE, LEVEL_TONE, MODEL_LABEL, fmt, clockTime, toneText,
+  Card, Chip, Kpi, PageHeader, AI_STATE, MODEL_LABEL, fmt, clockTime, valueText,
 } from '../components/ui'
 
 const SENSOR_IDS = ['SIM-sensor-001', 'SIM-sensor-002', 'SIM-sensor-003']
@@ -15,7 +15,7 @@ const MAX_ROWS = 15
 
 interface Sent { input: ReadingInput; output: SensorReadingResponse; at: Date }
 
-const INPUT_CLS = 'w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-1.5 text-sm text-slate-100 focus:border-blue-500 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+const INPUT_CLS = 'field [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
 
 const FIELDS: { key: keyof Omit<ReadingInput, 'sensor_id' | 'is_simulated'>; label: string; step: string }[] = [
   { key: 'temperature', label: 'Temperatura (°C)', step: '0.1' },
@@ -116,7 +116,7 @@ export default function Simulation() {
               onClick={reloadModel}
               disabled={reloading}
               title="Vuelve a leer el modelo desde disco después de reentrenarlo"
-              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+              className="btn btn-secondary shrink-0"
             >
               <RefreshCw size={12} className={reloading ? 'animate-spin' : ''} />
               {reloading ? 'Recargando…' : 'Recargar modelo'}
@@ -135,7 +135,7 @@ export default function Simulation() {
                 role="switch"
                 aria-checked={auto}
                 onClick={() => setAuto(a => !a)}
-                className={`relative h-5 w-9 rounded-full transition-colors ${auto ? 'bg-amber-500' : 'bg-slate-600'}`}
+                className={`relative h-5 w-9 rounded-full transition-colors ${auto ? 'bg-blue-600' : 'bg-slate-700'}`}
               >
                 <span className={`absolute left-0 top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${auto ? 'translate-x-4' : 'translate-x-0.5'}`} />
               </button>
@@ -144,7 +144,7 @@ export default function Simulation() {
         >
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             <label className="block">
-              <span className="mb-1 block text-xs text-slate-400">Sensor</span>
+              <span className="field-label">Sensor</span>
               <select
                 value={form.sensor_id}
                 onChange={e => setForm(f => ({ ...f, sensor_id: e.target.value }))}
@@ -155,7 +155,7 @@ export default function Simulation() {
             </label>
             {FIELDS.map(f => (
               <label key={f.key} className="block">
-                <span className="mb-1 block text-xs text-slate-400">{f.label}</span>
+                <span className="field-label">{f.label}</span>
                 <input
                   type="number"
                   step={f.step}
@@ -170,14 +170,14 @@ export default function Simulation() {
             <button
               onClick={() => send(form)}
               disabled={sending || auto}
-              className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+              className="btn btn-primary"
             >
               {sending ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />} Enviar
             </button>
             <button
               onClick={() => { setAuto(false); purge() }}
               disabled={sent.length === 0}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700 disabled:opacity-40"
+              className="btn btn-secondary"
             >
               <Trash2 size={14} /> Borrar simuladas
             </button>
@@ -200,7 +200,7 @@ export default function Simulation() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
-                <tr className="border-b border-slate-700 text-left text-xs text-slate-400">
+                <tr className="table-head">
                   {['Hora', 'Sensor', 'Temp.', 'Humedad', 'CO₂', 'CO', 'Decisión IA', 'Anomalía'].map(h => <th key={h} className="pb-2 pr-4 font-normal">{h}</th>)}
                 </tr>
               </thead>
@@ -209,13 +209,13 @@ export default function Simulation() {
                   const t = s.output.cognitive_action?.target ?? s.input.temperature
                   const a = AI_STATE[s.output.cognitive_action?.ac_status ?? '']
                   return (
-                    <tr key={s.output.inserted_id || s.at.getTime()} className="border-b border-slate-700/40">
+                    <tr key={s.output.inserted_id || s.at.getTime()} className="table-row">
                       <td className="py-1.5 pr-4 text-xs text-slate-400 tabular-nums">{clockTime(s.at)}</td>
                       <td className="py-1.5 pr-4 font-mono text-xs text-slate-300">{s.input.sensor_id}</td>
-                      <td className={`py-1.5 pr-4 tabular-nums ${toneText(LEVEL_TONE[levelTemp(s.input.temperature, t)])}`}>{fmt(s.input.temperature)} °C</td>
-                      <td className={`py-1.5 pr-4 tabular-nums ${toneText(LEVEL_TONE[levelHumedad(s.input.humidity)])}`}>{fmt(s.input.humidity, 0)} %</td>
-                      <td className={`py-1.5 pr-4 tabular-nums ${toneText(LEVEL_TONE[levelCO2(s.input.co2_ppm)])}`}>{fmt(s.input.co2_ppm, 0)}</td>
-                      <td className={`py-1.5 pr-4 tabular-nums ${toneText(LEVEL_TONE[levelCO(s.input.co_ppm)])}`}>{fmt(s.input.co_ppm)}</td>
+                      <td className={`py-1.5 pr-4 tabular-nums ${valueText(levelTemp(s.input.temperature, t))}`}>{fmt(s.input.temperature)} °C</td>
+                      <td className={`py-1.5 pr-4 tabular-nums ${valueText(levelHumedad(s.input.humidity))}`}>{fmt(s.input.humidity, 0)} %</td>
+                      <td className={`py-1.5 pr-4 tabular-nums ${valueText(levelCO2(s.input.co2_ppm))}`}>{fmt(s.input.co2_ppm, 0)}</td>
+                      <td className={`py-1.5 pr-4 tabular-nums ${valueText(levelCO(s.input.co_ppm))}`}>{fmt(s.input.co_ppm)}</td>
                       <td className="py-1.5 pr-4">{a ? <Chip tone={a.tone}>{a.label}</Chip> : '—'}</td>
                       <td className="py-1.5">{s.output.anomaly_detected ? <Chip tone="alert">Sí</Chip> : <span className="text-xs text-slate-500">No</span>}</td>
                     </tr>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Users, RefreshCw, AlertCircle, CheckCircle, XCircle, ShieldCheck } from 'lucide-react'
+import { Users, RefreshCw, AlertCircle, CheckCircle, XCircle } from 'lucide-react'
 import api, { getApiErrorDetail } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 
@@ -19,9 +19,9 @@ const TABS: { key: Tab; label: string }[] = [
 ]
 
 const ROLE_COLORS: Record<string, string> = {
-  admin:        'bg-purple-900/40 text-purple-300',
-  collaborator: 'bg-blue-900/40 text-blue-300',
-  guest:        'bg-slate-700 text-slate-300',
+  admin:        'chip chip-info',
+  collaborator: 'chip chip-muted',
+  guest:        'chip chip-muted',
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -76,16 +76,15 @@ export default function UserManagement() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <ShieldCheck size={22} className="text-blue-400" />
           <div>
-            <h1 className="text-xl font-bold text-white">Gestión de Usuarios</h1>
-            <p className="text-sm text-slate-400">Aprobación y administración de cuentas</p>
+            <h1 className="page-title">Usuarios</h1>
+            <p className="mt-1 text-xs text-slate-400">Aprobación y administración de cuentas</p>
           </div>
         </div>
-        <button onClick={fetchUsers} disabled={loading} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-100 bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg transition-colors">
+        <button onClick={fetchUsers} disabled={loading} className="btn btn-secondary">
           <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Actualizar
         </button>
       </div>
@@ -97,19 +96,15 @@ export default function UserManagement() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-slate-800 border border-slate-700 rounded-xl p-1 w-fit">
+      <div className="segmented">
         {TABS.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              tab === t.key
-                ? 'bg-blue-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-100'
-            }`}
+            className={`segmented-item ${tab === t.key ? 'segmented-item-active' : ''}`}
           >
             {t.label}
-            <span className={`text-xs rounded-full px-1.5 min-w-[20px] text-center ${tab === t.key ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400'}`}>
+            <span className={`text-xs rounded-full px-1.5 min-w-[20px] text-center ${tab === t.key ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400'}`}>
               {counts[t.key]}
             </span>
           </button>
@@ -117,7 +112,7 @@ export default function UserManagement() {
       </div>
 
       {/* Table */}
-      <div className="bg-slate-800 rounded-xl overflow-x-auto border border-slate-700">
+      <div className="surface overflow-x-auto">
         {loading ? (
           <div className="flex items-center gap-2 justify-center text-slate-400 text-sm py-12">
             <RefreshCw size={14} className="animate-spin" /> Cargando…
@@ -132,7 +127,7 @@ export default function UserManagement() {
         ) : (
           <table className="w-full min-w-[640px] text-sm">
             <thead>
-              <tr className="text-slate-400 text-xs uppercase border-b border-slate-700 bg-slate-800/80">
+              <tr className="table-head">
                 <th className="text-left px-4 py-3">Usuario</th>
                 <th className="text-left px-4 py-3">Rol</th>
                 <th className="text-left px-4 py-3">Estado</th>
@@ -147,7 +142,7 @@ export default function UserManagement() {
                     {/* Username */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-blue-600/20 border border-blue-500/20 flex items-center justify-center text-xs font-bold text-blue-300">
+                        <div className="w-7 h-7 rounded-full bg-blue-600/20 border border-blue-500/20 flex items-center justify-center text-xs font-semibold text-blue-300">
                           {u.username[0].toUpperCase()}
                         </div>
                         <div>
@@ -166,7 +161,7 @@ export default function UserManagement() {
 
                     {/* Role */}
                     <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${ROLE_COLORS[u.role] ?? 'bg-slate-700 text-slate-300'}`}>
+                      <span className={ROLE_COLORS[u.role] ?? 'chip chip-muted'}>
                         {ROLE_LABELS[u.role] ?? u.role}
                       </span>
                     </td>

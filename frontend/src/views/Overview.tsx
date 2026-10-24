@@ -6,8 +6,8 @@ import type { StoredReading } from '../types'
 import { useEmergency } from '../context/EmergencyContext'
 import { levelTemp, levelCO2, levelCO, type SensorLevel } from '../utils/sensorColors'
 import {
-  Card, Chip, PageHeader, LEVEL_TONE, NODE_STATE, AI_STATE, LIVE_SECONDS,
-  NODE_SETPOINT, fmt, parseUtc, timeAgo, toneText, type Tone,
+  Card, Chip, PageHeader, NODE_STATE, AI_STATE, LIVE_SECONDS,
+  NODE_SETPOINT, fmt, parseUtc, timeAgo, valueText, type Tone,
 } from '../components/ui'
 
 interface Room {
@@ -77,7 +77,7 @@ function Value({ label, value, unit, level }: { label: string; value: string; un
   return (
     <div className="min-w-0">
       <p className="text-xs text-slate-400">{label}</p>
-      <p className={`text-sm font-semibold tabular-nums ${level && level !== 'normal' ? toneText(LEVEL_TONE[level]) : 'text-slate-100'}`}>
+      <p className={`text-sm font-semibold tabular-nums ${level ? valueText(level) : 'text-slate-200'}`}>
         {value}{value !== '—' && <span className="ml-0.5 text-xs font-normal text-slate-400">{unit}</span>}
       </p>
     </div>
@@ -96,8 +96,8 @@ function RoomCard({ row, now }: { row: RoomRow; now: number }) {
   return (
     <Link
       to={`/room/${room.id}`}
-      className={`group flex flex-col gap-3 rounded-lg border bg-slate-800/60 p-3 transition-colors hover:border-slate-500 hover:bg-slate-800 ${
-        level === 'alerta' ? 'border-red-500/50' : 'border-slate-700/60'
+      className={`surface group flex flex-col gap-3 p-3 transition-colors hover:border-slate-600 ${
+        level === 'alerta' ? 'border-red-500/50' : ''
       }`}
     >
       <div className="flex items-start justify-between gap-2">
@@ -114,7 +114,7 @@ function RoomCard({ row, now }: { row: RoomRow; now: number }) {
         <Value label="CO" value={fmt(l?.co_ppm)} unit="ppm" level={l ? levelCO(l.co_ppm ?? 0) : null} />
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-slate-700/60 pt-2 text-xs text-slate-400">
+      <div className="flex items-center justify-between gap-2 border-t border-slate-800 pt-2 text-xs text-slate-400">
         <span className="flex items-center gap-1.5">
           <span className={`h-1.5 w-1.5 rounded-full ${live ? 'animate-pulse bg-emerald-400' : 'bg-slate-500'}`} />
           {live ? 'En vivo' : timeAgo(l?.timestamp, now)}
@@ -196,14 +196,14 @@ export default function Overview() {
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Buscar aula…"
-            className="w-48 rounded-lg border border-slate-700 bg-slate-800 py-1.5 pl-8 pr-3 text-sm text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+            className="field w-48 pl-8"
           />
         </label>
       </PageHeader>
 
       {/* 1 · Alerts */}
       {realEmergencies.length > 0 || alertRooms.length > 0 ? (
-        <Card className="border-red-500/40 bg-red-950/30">
+        <Card className="border-red-500/40">
           <div className="flex flex-wrap items-center gap-2 text-sm text-red-200">
             <AlertTriangle size={16} className="text-red-400" />
             <span className="font-semibold">Alertas activas:</span>

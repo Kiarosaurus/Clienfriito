@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import {
   TrendingUp, Zap, Leaf, RefreshCw, AlertCircle,
-  FlaskConical, Brain, Clock,
+  FlaskConical, Clock,
 } from 'lucide-react'
 import api, { getApiErrorDetail } from '../api/client'
 
@@ -54,29 +54,16 @@ interface KpiCardProps {
   label: string
   value: string
   sublabel: string
-  color: 'emerald' | 'blue' | 'teal'
 }
 
-function KpiCard({ icon, label, value, sublabel, color }: KpiCardProps) {
-  const palette = {
-    emerald: 'bg-emerald-900/30 border-emerald-500/30 text-emerald-300',
-    blue:    'bg-blue-900/30    border-blue-500/30    text-blue-300',
-    teal:    'bg-teal-900/30    border-teal-500/30    text-teal-300',
-  }
-  const iconBg = {
-    emerald: 'bg-emerald-600/20 border-emerald-500/30',
-    blue:    'bg-blue-600/20    border-blue-500/30',
-    teal:    'bg-teal-600/20    border-teal-500/30',
-  }
+function KpiCard({ icon, label, value, sublabel }: KpiCardProps) {
   return (
-    <div className={`rounded-xl border p-5 flex items-start gap-4 ${palette[color]}`}>
-      <div className={`w-11 h-11 rounded-lg border flex items-center justify-center shrink-0 ${iconBg[color]}`}>
-        {icon}
-      </div>
+    <div className="surface flex items-start gap-3 p-4">
+      <span className="mt-0.5 text-slate-400">{icon}</span>
       <div className="min-w-0">
-        <p className="text-xs uppercase tracking-wide opacity-70 mb-1">{label}</p>
-        <p className="text-2xl font-bold text-white leading-tight truncate">{value}</p>
-        <p className="text-xs opacity-60 mt-1">{sublabel}</p>
+        <p className="text-xs text-slate-400">{label}</p>
+        <p className="mt-1 truncate text-xl font-semibold leading-tight text-white tabular-nums">{value}</p>
+        <p className="mt-1 text-xs text-slate-500">{sublabel}</p>
       </div>
     </div>
   )
@@ -120,21 +107,20 @@ export default function ROIReport() {
     : 0
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <TrendingUp size={22} className="text-emerald-400" />
           <div>
-            <h1 className="text-xl font-bold text-white">Dashboard de Rentabilidad</h1>
-            <p className="text-sm text-slate-400">Retorno de inversión del sistema cognitivo</p>
+            <h1 className="page-title">Rentabilidad</h1>
+            <p className="mt-1 text-xs text-slate-400">Retorno de inversión del sistema cognitivo</p>
           </div>
         </div>
         <button
           onClick={fetchROI}
           disabled={loading}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-100 bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg transition-colors"
+          className="btn btn-secondary"
         >
           <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Recalcular
         </button>
@@ -142,7 +128,7 @@ export default function ROIReport() {
 
       {/* Simulated data banner */}
       {data?.simulated && (
-        <div className="flex items-center gap-2 bg-amber-900/30 border border-amber-500/40 rounded-xl px-4 py-3 text-sm text-amber-300">
+        <div className="flex items-center gap-2 bg-amber-900/30 border border-amber-500/40 rounded-lg px-4 py-3 text-sm text-amber-300">
           <FlaskConical size={15} className="shrink-0" />
           <span>
             <strong>Datos simulados</strong> — base de datos con menos de 2 lecturas reales.
@@ -153,7 +139,7 @@ export default function ROIReport() {
 
       {/* Error */}
       {error && (
-        <div className="flex items-center gap-2 bg-red-900/30 border border-red-500/40 rounded-xl px-4 py-3 text-sm text-red-300">
+        <div className="flex items-center gap-2 bg-red-900/30 border border-red-500/40 rounded-lg px-4 py-3 text-sm text-red-300">
           <AlertCircle size={16} className="shrink-0" /> {error}
         </div>
       )}
@@ -171,22 +157,19 @@ export default function ROIReport() {
           {/* ── KPI Cards ─────────────────────────────────────────────────── */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <KpiCard
-              color="emerald"
-              icon={<TrendingUp size={20} className="text-emerald-400" />}
+              icon={<TrendingUp size={18} />}
               label="Ahorro Económico Estimado"
               value={`$${fmt(data.total_savings_currency)}`}
               sublabel={`Factor: $${data.assumptions.cost_per_kwh}/kWh`}
             />
             <KpiCard
-              color="blue"
-              icon={<Zap size={20} className="text-blue-400" />}
+              icon={<Zap size={18} />}
               label="Energía Ahorrada"
               value={`${fmt(data.energy_saved_kwh, 1)} kWh`}
               sublabel={`${fmt(data.standby_hours, 1)} h en STANDBY`}
             />
             <KpiCard
-              color="teal"
-              icon={<Leaf size={20} className="text-teal-400" />}
+              icon={<Leaf size={18} />}
               label="Reducción de Huella de Carbono"
               value={`${fmt(co2Saved, 2)} kg CO₂`}
               sublabel={`Factor: ${CO2_KG_PER_KWH} kg/kWh`}
@@ -194,11 +177,11 @@ export default function ROIReport() {
           </div>
 
           {/* ── Comparative Bar Chart ──────────────────────────────────────── */}
-          <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
-            <h2 className="text-slate-300 text-sm font-semibold uppercase tracking-wide mb-1">
-              Consumo Comparativo — Últimos 7 días (kWh)
+          <div className="surface p-4">
+            <h2 className="section-title mb-1">
+              Consumo comparativo, últimos 7 días (kWh)
             </h2>
-            <p className="text-xs text-slate-500 mb-5">
+            <p className="mb-4 text-xs text-slate-400">
               Sistema tradicional (AC encendido 100% del tiempo) vs. sistema cognitivo real
             </p>
 
@@ -209,28 +192,28 @@ export default function ROIReport() {
             ) : (
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }} barCategoryGap="30%">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="date" stroke="#64748b" tick={{ fontSize: 11 }} />
                   <YAxis stroke="#64748b" tick={{ fontSize: 11 }} unit=" kWh" />
                   <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'transparent' }} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="Tradicional" fill="#f97316" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Cognitivo"   fill="#22d3ee" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Tradicional" fill="#64748b" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Cognitivo"   fill="#38bdf8" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
           </div>
 
           {/* ── Cognitive Summary Panel ────────────────────────────────────── */}
-          <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
-            <h2 className="flex items-center gap-2 text-slate-300 text-sm font-semibold uppercase tracking-wide mb-4">
-              <Brain size={15} className="text-purple-400" /> Resumen Cognitivo
+          <div className="surface p-4">
+            <h2 className="section-title mb-3">
+              Resumen cognitivo
             </h2>
 
-            <p className="text-slate-300 text-sm leading-relaxed mb-5">
+            <p className="mb-4 text-sm leading-relaxed text-slate-300">
               El sistema ha optimizado la ventilación basándose en patrones de ocupación,
               evitando{' '}
-              <span className="font-bold text-blue-300">{fmt(data.energy_saved_kwh, 2)} kWh</span>
+              <span className="font-semibold text-white">{fmt(data.energy_saved_kwh, 2)} kWh</span>
               {' '}de gasto por inercia térmica.
             </p>
 
@@ -242,26 +225,26 @@ export default function ROIReport() {
                   value: `${fmt(data.total_hours_analyzed, 1)} h`,
                 },
                 {
-                  icon: <Zap size={14} className="text-blue-400" />,
+                  icon: <Zap size={14} className="text-slate-400" />,
                   label: 'Lecturas procesadas',
                   value: data.total_readings.toLocaleString(),
                 },
                 {
-                  icon: <TrendingUp size={14} className="text-emerald-400" />,
+                  icon: <TrendingUp size={14} className="text-slate-400" />,
                   label: 'Eficiencia lograda',
                   value: `${fmt(standbyPct, 1)}%`,
                 },
                 {
-                  icon: <Leaf size={14} className="text-teal-400" />,
+                  icon: <Leaf size={14} className="text-slate-400" />,
                   label: 'CO₂ evitado',
                   value: `${fmt(co2Saved, 2)} kg`,
                 },
               ].map(item => (
-                <div key={item.label} className="bg-slate-700/50 border border-slate-700 rounded-lg px-3 py-3">
+                <div key={item.label} className="surface-inset px-3 py-2">
                   <div className="flex items-center gap-1.5 mb-1.5">{item.icon}
-                    <span className="text-xs text-slate-500 uppercase tracking-wide">{item.label}</span>
+                    <span className="text-xs text-slate-500">{item.label}</span>
                   </div>
-                  <p className="text-base font-bold text-slate-100">{item.value}</p>
+                  <p className="text-sm font-semibold text-slate-100">{item.value}</p>
                 </div>
               ))}
             </div>

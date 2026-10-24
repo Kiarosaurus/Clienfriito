@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  CalendarDays, RefreshCw, AlertCircle, Users,
+  RefreshCw, AlertCircle, Users,
   Clock, CheckCircle2, PlusCircle, X, Pencil,
   Calendar, DoorOpen, Trash2, TriangleAlert,
 } from 'lucide-react'
@@ -269,9 +269,9 @@ export default function Reservations() {
 
   // ── Shared style tokens ───────────────────────────────────────────────────
 
-  const inputCls = "w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition placeholder-slate-500"
+  const inputCls = "field"
   const numInputCls = `${inputCls} ${NUM_INPUT_MODS}`
-  const labelCls = "block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide"
+  const labelCls = "field-label"
 
   const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: 'new',  label: 'Nueva Reserva',  icon: <PlusCircle size={14} /> },
@@ -283,16 +283,16 @@ export default function Reservations() {
   function Section({ title, items }: { title: string; items: Reservation[] }) {
     return (
       <div>
-        <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+        <h2 className="text-sm font-semibold text-slate-400 mb-3">
           {title} <span className="text-slate-600">({items.length})</span>
         </h2>
         {items.length === 0 ? (
-          <p className="text-slate-500 text-sm py-4 text-center bg-slate-800 rounded-xl border border-slate-700">Sin reservas</p>
+          <p className="surface text-slate-500 text-sm py-4 text-center">Sin reservas</p>
         ) : (
-          <div className="bg-slate-800 rounded-xl overflow-x-auto border border-slate-700">
+          <div className="surface overflow-x-auto">
             <table className="w-full min-w-[560px] text-sm">
               <thead>
-                <tr className="text-slate-400 text-xs uppercase border-b border-slate-700 bg-slate-800/80">
+                <tr className="table-head">
                   {['Aula', 'Usuario', 'Inicio', 'Fin', 'Ocupantes'].map(h => (
                     <th key={h} className="text-left px-4 py-3">{h}</th>
                   ))}
@@ -335,19 +335,18 @@ export default function Reservations() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <CalendarDays size={22} className="text-blue-400" />
         <div>
-          <h1 className="text-xl font-bold text-white">Reservas</h1>
-          <p className="text-sm text-slate-400">Gestión de reservas de aulas</p>
+          <h1 className="page-title">Reservas</h1>
+          <p className="mt-1 text-xs text-slate-400">Gestión de reservas de aulas</p>
         </div>
       </div>
 
       {/* Toast */}
       {toast && (
-        <div className={`flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm ${
+        <div className={`flex items-center justify-between gap-3 rounded-lg px-4 py-3 text-sm ${
           toast.type === 'success'
             ? 'bg-emerald-900/40 border border-emerald-500/40 text-emerald-300'
             : 'bg-red-900/40 border border-red-500/40 text-red-300'
@@ -372,20 +371,16 @@ export default function Reservations() {
       )}
 
       {/* Form card */}
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+      <div className="surface p-4">
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-slate-900/50 border border-slate-700/60 rounded-xl p-1 w-fit mb-6">
+        <div className="segmented mb-4">
           {TABS.map(t => (
             <button
               key={t.key}
               type="button"
               onClick={() => switchTab(t.key)}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                activeTab === t.key
-                  ? 'bg-blue-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-100'
-              }`}
+              className={`segmented-item ${activeTab === t.key ? 'segmented-item-active' : ''}`}
             >
               {t.icon} {t.label}
             </button>
@@ -487,7 +482,7 @@ export default function Reservations() {
               <button
                 type="submit"
                 disabled={submitting || !form.room_id || (activeTab === 'edit' && !selectedId)}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-semibold text-sm px-6 py-2.5 rounded-lg transition-colors"
+                className="btn btn-primary"
               >
                 {submitting ? (
                   <><RefreshCw size={14} className="animate-spin" /> {activeTab === 'new' ? 'Guardando…' : 'Actualizando…'}</>
@@ -505,11 +500,11 @@ export default function Reservations() {
       {/* ── Confirmation modal ────────────────────────────────────────────── */}
       {isModalOpen && pendingEditData && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl">
+          <div className="surface rounded-lg shadow-2xl w-full max-w-2xl">
 
             {/* Modal header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
-              <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                 <Pencil size={16} className="text-blue-400" />
                 Confirmar Actualización de Reserva
               </h3>
@@ -525,8 +520,8 @@ export default function Reservations() {
             <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
 
               {/* Left — Datos Actuales */}
-              <div className="bg-slate-700/40 border border-slate-600/50 rounded-xl p-4 space-y-4">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+              <div className="surface-inset p-4 space-y-4">
+                <p className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-slate-500 inline-block" />
                   Datos Actuales
                 </p>
@@ -540,8 +535,8 @@ export default function Reservations() {
               </div>
 
               {/* Right — Nuevos Datos */}
-              <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-4 space-y-4">
-                <p className="text-xs font-semibold text-blue-400 uppercase tracking-wide flex items-center gap-1.5">
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 space-y-4">
+                <p className="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />
                   Nuevos Datos
                 </p>
@@ -584,7 +579,7 @@ export default function Reservations() {
                 type="button"
                 onClick={confirmEdit}
                 disabled={submitting}
-                className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg transition-colors"
+                className="btn btn-primary"
               >
                 {submitting
                   ? <><RefreshCw size={13} className="animate-spin" /> Actualizando…</>
@@ -598,10 +593,10 @@ export default function Reservations() {
       {/* ── Modal: Eliminar Reserva ───────────────────────────────────────── */}
       {deleteModalOpen && selectedId && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-red-900/60 rounded-2xl shadow-2xl w-full max-w-md">
+          <div className="bg-slate-900 border border-red-900/60 rounded-xl shadow-2xl w-full max-w-md">
 
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-              <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                 <Trash2 size={16} className="text-red-500" /> Eliminar Reserva Permanentemente
               </h3>
               <button onClick={() => setDeleteModalOpen(false)}
@@ -612,7 +607,7 @@ export default function Reservations() {
             </div>
 
             <div className="px-6 py-5 space-y-5">
-              <div className="flex items-start gap-3 bg-red-950/50 border border-red-800/50 rounded-xl px-4 py-3">
+              <div className="flex items-start gap-3 bg-red-950/50 border border-red-800/50 rounded-lg px-4 py-3">
                 <TriangleAlert size={16} className="text-red-400 shrink-0 mt-0.5" />
                 <p className="text-sm text-red-300 leading-relaxed">
                   ¿Está seguro de que desea eliminar esta reserva?{' '}
@@ -621,7 +616,7 @@ export default function Reservations() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
+                <label className="field-label">
                   Escriba el ID de la reserva para confirmar
                 </label>
                 <input
@@ -629,14 +624,14 @@ export default function Reservations() {
                   placeholder={String(selectedId)}
                   value={deleteConfirm}
                   onChange={e => setDeleteConfirm(e.target.value)}
-                  className="w-full bg-black border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/50 transition placeholder-slate-600 font-mono"
+                  className="field font-mono focus:border-red-500 focus:ring-red-500/40"
                 />
               </div>
             </div>
 
             <div className="flex items-center justify-end gap-3 px-6 pb-5">
               <button type="button" onClick={() => setDeleteModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-slate-700"
+                className="btn btn-secondary"
               >
                 Cancelar
               </button>
@@ -644,7 +639,7 @@ export default function Reservations() {
                 type="button"
                 onClick={confirmDelete}
                 disabled={submitting || deleteConfirm !== String(selectedId)}
-                className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-red-700 hover:bg-red-600 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed rounded-lg transition-colors"
+                className="btn btn-danger"
               >
                 {submitting
                   ? <><RefreshCw size={13} className="animate-spin" /> Eliminando…</>

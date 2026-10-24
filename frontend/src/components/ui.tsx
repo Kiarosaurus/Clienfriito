@@ -2,7 +2,8 @@ import type { ReactNode } from 'react'
 import type { SensorLevel } from '../utils/sensorColors'
 
 // Shared visual system (see .claude/CLAUDE.md, design rules).
-// Text sizes: text-xs (labels, meta), text-sm (body, section titles), text-2xl (values, page title).
+// Classes live in index.css (@layer components). Text sizes: text-xs (labels, meta),
+// text-sm (body, section titles), text-xl (page titles, KPI values).
 
 // ── Status tones ──────────────────────────────────────────────────────────────
 export type Tone = 'ok' | 'warn' | 'high' | 'alert' | 'info' | 'muted'
@@ -16,12 +17,7 @@ const TONE_TEXT: Record<Tone, string> = {
   muted: 'text-slate-400',
 }
 const TONE_CHIP: Record<Tone, string> = {
-  ok: 'bg-emerald-500/10 ring-emerald-500/30',
-  warn: 'bg-amber-500/10 ring-amber-500/30',
-  high: 'bg-orange-500/10 ring-orange-500/30',
-  alert: 'bg-red-500/10 ring-red-500/30',
-  info: 'bg-sky-500/10 ring-sky-500/30',
-  muted: 'bg-slate-500/10 ring-slate-500/30',
+  ok: 'chip-ok', warn: 'chip-warn', high: 'chip-high', alert: 'chip-alert', info: 'chip-info', muted: 'chip-muted',
 }
 const TONE_DOT: Record<Tone, string> = {
   ok: 'bg-emerald-400',
@@ -38,13 +34,16 @@ export const LEVEL_TONE: Record<SensorLevel, Tone> = {
   normal: 'ok', atencion: 'warn', elevado: 'high', alerta: 'alert',
 }
 
+// Text color for a measured value: neutral when in range, status color otherwise.
+export const valueText = (l: SensorLevel) => (l === 'normal' ? 'text-slate-200' : TONE_TEXT[LEVEL_TONE[l]])
+
 export function Chip({ tone = 'muted', dot = false, pulse = false, children, title }: {
   tone?: Tone; dot?: boolean; pulse?: boolean; children: ReactNode; title?: string
 }) {
   return (
     <span
       title={title}
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${TONE_CHIP[tone]} ${TONE_TEXT[tone]}`}
+      className={`chip ${TONE_CHIP[tone]}`}
     >
       {dot && <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]} ${pulse ? 'animate-pulse' : ''}`} />}
       {children}
@@ -57,10 +56,10 @@ export function Card({ title, aside, children, className = '' }: {
   title?: ReactNode; aside?: ReactNode; children: ReactNode; className?: string
 }) {
   return (
-    <section className={`rounded-lg border border-slate-700/60 bg-slate-800/60 p-4 ${className}`}>
+    <section className={`surface p-4 ${className}`}>
       {(title || aside) && (
         <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          {title && <h2 className="text-sm font-semibold text-slate-200">{title}</h2>}
+          {title && <h2 className="section-title">{title}</h2>}
           {aside && <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">{aside}</div>}
         </header>
       )}
@@ -75,7 +74,7 @@ export function PageHeader({ title, subtitle, children }: {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-2xl font-semibold text-white">{title}</h1>
+        <h1 className="page-title">{title}</h1>
         {subtitle && <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">{subtitle}</div>}
       </div>
       {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
@@ -88,12 +87,12 @@ export function Kpi({ label, value, unit, tone, status, hint }: {
   label: string; value: string; unit?: string; tone?: Tone; status?: string; hint?: string
 }) {
   return (
-    <div className="flex h-[72px] flex-col justify-between rounded-lg border border-slate-700/60 bg-slate-800/60 px-3 py-2" title={hint}>
+    <div className="surface flex h-[72px] flex-col justify-between px-3 py-2" title={hint}>
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-xs text-slate-400">{label}</span>
         {status && <Chip tone={tone}>{status}</Chip>}
       </div>
-      <p className="truncate text-2xl font-semibold leading-none text-white tabular-nums">
+      <p className="truncate text-xl font-semibold leading-none text-white tabular-nums">
         {value}
         {unit && value !== '—' && <span className="ml-1 text-sm font-normal text-slate-400">{unit}</span>}
       </p>
@@ -105,7 +104,7 @@ export function Tabs<T extends string>({ value, onChange, items }: {
   value: T; onChange: (v: T) => void; items: { value: T; label: string }[]
 }) {
   return (
-    <div role="tablist" className="flex gap-1 border-b border-slate-700/60">
+    <div role="tablist" className="flex gap-1 border-b border-slate-800">
       {items.map(it => (
         <button
           key={it.value}
@@ -114,7 +113,7 @@ export function Tabs<T extends string>({ value, onChange, items }: {
           onClick={() => onChange(it.value)}
           className={`-mb-px border-b-2 px-3 py-2 text-sm transition-colors ${
             value === it.value
-              ? 'border-blue-400 text-white'
+              ? 'border-blue-500 text-white'
               : 'border-transparent text-slate-400 hover:text-slate-200'
           }`}
         >

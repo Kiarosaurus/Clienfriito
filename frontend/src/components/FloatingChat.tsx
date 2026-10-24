@@ -74,7 +74,7 @@ export default function FloatingChat() {
     <>
       {/* Chat window */}
       {isOpen && (
-        <div className="fixed bottom-20 right-4 sm:right-6 z-50 w-[calc(100vw-2rem)] sm:w-96 flex flex-col max-h-[520px] bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
+        <div className="surface rounded-lg fixed bottom-20 right-4 sm:right-6 z-50 w-[calc(100vw-2rem)] sm:w-96 flex flex-col max-h-[520px] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
 
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 bg-slate-700/60 border-b border-slate-700 shrink-0">
@@ -106,7 +106,7 @@ export default function FloatingChat() {
                 className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
+                  className={`max-w-[80%] rounded-xl px-3.5 py-2 text-sm leading-relaxed ${
                     msg.sender === 'user'
                       ? 'bg-blue-600 text-white rounded-br-sm'
                       : 'bg-slate-700 text-slate-200 rounded-bl-sm'
@@ -120,7 +120,7 @@ export default function FloatingChat() {
             {/* Typing indicator */}
             {isTyping && (
               <div className="flex justify-start">
-                <div className="bg-slate-700 rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1.5">
+                <div className="bg-slate-700 rounded-xl rounded-bl-sm px-4 py-3 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:0ms]" />
                   <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:150ms]" />
                   <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:300ms]" />
@@ -141,12 +141,12 @@ export default function FloatingChat() {
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={isTyping}
-              className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-3.5 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition disabled:opacity-50"
+              className="field flex-1 disabled:opacity-50"
             />
             <button
               onClick={sendMessage}
               disabled={!input.trim() || isTyping}
-              className="flex items-center justify-center w-9 h-9 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white transition-colors shrink-0"
+              className="btn btn-primary h-9 w-9 shrink-0 px-0"
             >
               <Send size={15} />
             </button>
@@ -157,14 +157,14 @@ export default function FloatingChat() {
       {/* FAB */}
       <button
         onClick={() => setIsOpen(prev => !prev)}
-        className={`fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 ${
+        className={`fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full shadow-lg flex items-center justify-center transition-colors ${
           isOpen
-            ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+            ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
             : 'bg-blue-600 text-white hover:bg-blue-500'
         }`}
         aria-label={isOpen ? 'Cerrar chat' : 'Abrir chat con Watson'}
       >
-        {isOpen ? <X size={22} /> : <MessageCircle size={22} />}
+        {isOpen ? <X size={20} /> : <MessageCircle size={20} />}
       </button>
     </>
   )

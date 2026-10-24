@@ -1,6 +1,6 @@
 // Semantic threshold levels + colors for sensor readings.
-// Single source of truth shared by the Resumen, Aula and Simulación views. Dentro de rango → gris neutro (#7a96b5, texto secundario);
-// fuera de rango escala amarillo (#eab308) → naranja (#f97316) → rojo (#ef4444).
+// Single source of truth shared by the Resumen, Aula and Simulación views. Dentro de rango → texto normal;
+// fuera de rango escala ámbar → naranja → rojo (mismos tonos que los chips de estado).
 
 export type SensorLevel = 'normal' | 'atencion' | 'elevado' | 'alerta'
 
@@ -12,10 +12,10 @@ export interface LevelTokens {
 }
 
 const LEVELS: Record<SensorLevel, LevelTokens> = {
-  normal:   { text: 'text-[#7a96b5]',  bar: 'border-l-[#7a96b5]',  ring: 'bg-slate-500/10 ring-slate-500/30',   label: 'Normal' },
-  atencion: { text: 'text-yellow-500', bar: 'border-l-yellow-500', ring: 'bg-yellow-500/10 ring-yellow-500/30', label: 'Atención' },
-  elevado:  { text: 'text-orange-500', bar: 'border-l-orange-500', ring: 'bg-orange-500/10 ring-orange-500/30', label: 'Elevado' },
-  alerta:   { text: 'text-red-500',    bar: 'border-l-red-500',    ring: 'bg-red-500/10 ring-red-500/30',       label: 'Alerta' },
+  normal:   { text: 'text-slate-200',   bar: 'border-l-slate-500',   ring: 'bg-slate-500/10 ring-slate-500/30',   label: 'Normal' },
+  atencion: { text: 'text-amber-300', bar: 'border-l-amber-400', ring: 'bg-amber-500/10 ring-amber-500/30', label: 'Atención' },
+  elevado:  { text: 'text-orange-300', bar: 'border-l-orange-500', ring: 'bg-orange-500/10 ring-orange-500/30', label: 'Elevado' },
+  alerta:   { text: 'text-red-300',    bar: 'border-l-red-500',    ring: 'bg-red-500/10 ring-red-500/30',       label: 'Alerta' },
 }
 
 // ── Level classifiers ─────────────────────────────────────────────────────────

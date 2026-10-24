@@ -3,13 +3,15 @@
 @tailwind utilities;
 
 @layer base {
+  :root { color-scheme: dark; }
+
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
 
   ::-webkit-scrollbar-track {
-    background: #0f172a;
+    background: #020617;
   }
 
   ::-webkit-scrollbar-thumb {
@@ -23,6 +25,49 @@
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: #334155 #0f172a;
+    scrollbar-color: #334155 #020617;
   }
+}
+
+/* ── Shared visual system (.claude/CLAUDE.md, design rules) ──────────────────
+   Page slate-950 · chrome and surfaces slate-900 + slate-800 border · insets slate-950.
+   Accent: blue (primary actions, selection, focus). Status: emerald / amber / orange / red / sky. */
+@layer components {
+  .surface { @apply rounded-lg border border-slate-800 bg-slate-900; }
+  .surface-inset { @apply rounded-lg border border-slate-800 bg-slate-950/60; }
+
+  .page-title { @apply text-xl font-semibold text-white; }
+  .section-title { @apply text-sm font-semibold text-slate-200; }
+
+  .field-label { @apply mb-1 block text-xs text-slate-400; }
+  .field {
+    @apply w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100
+      placeholder-slate-500 transition-colors focus:border-blue-500 focus:outline-none focus:ring-1
+      focus:ring-blue-500/40 disabled:opacity-50;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm
+      font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary { @apply bg-blue-600 text-white hover:bg-blue-500; }
+  .btn-secondary { @apply border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800; }
+  .btn-danger { @apply bg-red-600 text-white hover:bg-red-500; }
+  .btn-ghost { @apply text-slate-400 hover:bg-slate-800 hover:text-slate-100; }
+
+  .chip { @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1; }
+  .chip-ok { @apply bg-emerald-500/10 text-emerald-300 ring-emerald-500/30; }
+  .chip-warn { @apply bg-amber-500/10 text-amber-300 ring-amber-500/30; }
+  .chip-high { @apply bg-orange-500/10 text-orange-300 ring-orange-500/30; }
+  .chip-alert { @apply bg-red-500/10 text-red-300 ring-red-500/30; }
+  .chip-info { @apply bg-sky-500/10 text-sky-300 ring-sky-500/30; }
+  .chip-muted { @apply bg-slate-500/10 text-slate-300 ring-slate-500/30; }
+
+  .table-head { @apply border-b border-slate-800 text-left text-xs font-normal text-slate-400; }
+  .table-row { @apply border-b border-slate-800/60 transition-colors hover:bg-slate-800/30; }
+
+  /* Segmented control (tabs inside a card, mode switches). */
+  .segmented { @apply inline-flex gap-1 rounded-lg border border-slate-800 bg-slate-950/60 p-1; }
+  .segmented-item { @apply inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-slate-400 transition-colors hover:text-slate-100; }
+  .segmented-item-active { @apply bg-slate-800 text-white; }
 }

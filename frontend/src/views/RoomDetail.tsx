@@ -11,7 +11,7 @@ import type { StoredReading } from '../types'
 import { levelTemp, levelHumedad, levelCO2, levelCO, getStatusLabel } from '../utils/sensorColors'
 import {
   Card, Chip, Kpi, Tabs, LEVEL_TONE, NODE_STATE, AI_STATE, MODEL_LABEL, LIVE_SECONDS, NODE_SETPOINT,
-  fmt, parseUtc, timeAgo, clockTime, toneText, type Tone,
+  fmt, parseUtc, timeAgo, clockTime, valueText, type Tone,
 } from '../components/ui'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -115,8 +115,10 @@ const formatHour = (iso: string) => new Date(iso).toLocaleTimeString('es', { hou
 const formatClock = (iso: string) =>
   new Date(iso).toLocaleString('es', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
-const AXIS = { stroke: '#64748b', tick: { fontSize: 11 } }
-const TOOLTIP_STYLE = { backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12, color: '#e2e8f0' }
+const AXIS = { stroke: '#475569', tick: { fontSize: 11, fill: '#94a3b8' } }
+// Chart palette: one data color (sky), slate for comparisons, status colors only for thresholds.
+const C = { data: '#38bdf8', compare: '#94a3b8', grid: '#1e293b', ok: '#34d399', warn: '#fbbf24', high: '#fb923c', alert: '#f87171' }
+const TOOLTIP_STYLE = { backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, fontSize: 12, color: '#e2e8f0' }
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -138,7 +140,7 @@ function Toggle({ checked, onChange, disabled, label }: {
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${checked ? 'bg-blue-600' : 'bg-slate-600'}`}
+        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${checked ? 'bg-blue-600' : 'bg-slate-700'}`}
       >
         <span className={`absolute left-0 top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
       </button>
@@ -167,7 +169,7 @@ function MiniChart({ title, data, dataKey, unit, color, domain, refs = [] }: {
     <Card title={title}>
       <ResponsiveContainer width="100%" height={150}>
         <LineChart data={data} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+          <CartesianGrid strokeDasharray="3 3" stroke={C.grid} />
           <XAxis dataKey="t" type="number" scale="time" domain={['dataMin', 'dataMax']} tickFormatter={tickFmt} minTickGap={48} {...AXIS} />
           <YAxis domain={domain ?? ['auto', 'auto']} width={48} tickFormatter={v => `${+Number(v).toFixed(1)}`} {...AXIS} />
           <Tooltip
@@ -191,20 +193,20 @@ function TimelineTooltip({ active, payload }: { active?: boolean; payload?: Arra
   const row = payload[0].payload
   const phase = row.phase === 'past' ? 'Medido' : row.phase === 'current' ? 'Ahora' : 'Proyección'
   return (
-    <div className="min-w-[200px] rounded-lg border border-slate-700 bg-slate-900/95 px-3 py-2 text-xs text-slate-200 shadow-xl">
-      <div className="mb-1 flex justify-between border-b border-slate-700 pb-1">
+    <div className="surface min-w-[200px] px-3 py-2 text-xs text-slate-200 shadow-xl">
+      <div className="mb-1 flex justify-between border-b border-slate-800 pb-1">
         <span className="font-semibold">{row.time}</span>
         <span className="text-slate-400">{phase}</span>
       </div>
-      {row.temperatura_real != null && <p>Temperatura medida: <b className="text-sky-300">{row.temperatura_real.toFixed(1)} °C</b></p>}
-      {row.ac_setpoint != null && <p>Setpoint del aire: <b className="text-red-300">{row.ac_setpoint.toFixed(1)} °C</b></p>}
-      {row.temperatura_sin_ac != null && <p>Sin aire: <b className="text-orange-300">{row.temperatura_sin_ac.toFixed(1)} °C</b></p>}
-      {row.temperatura_con_ac != null && <p>Con aire: <b className="text-sky-300">{row.temperatura_con_ac.toFixed(1)} °C</b></p>}
+      {row.temperatura_real != null && <p>Temperatura medida: <b className="text-white">{row.temperatura_real.toFixed(1)} °C</b></p>}
+      {row.ac_setpoint != null && <p>Setpoint del aire: <b className="text-white">{row.ac_setpoint.toFixed(1)} °C</b></p>}
+      {row.temperatura_sin_ac != null && <p>Sin aire: <b className="text-white">{row.temperatura_sin_ac.toFixed(1)} °C</b></p>}
+      {row.temperatura_con_ac != null && <p>Con aire: <b className="text-white">{row.temperatura_con_ac.toFixed(1)} °C</b></p>}
       {row.phase === 'future' && row.ac_status && (
         <p className="text-slate-400">Decisión prevista: <b className="text-slate-200">{AI_STATE[row.ac_status]?.label ?? row.ac_status}</b></p>
       )}
       {row.reservation && (
-        <p className="mt-1 border-t border-slate-700 pt-1 text-indigo-300">
+        <p className="mt-1 border-t border-slate-800 pt-1 text-slate-300">
           Reserva de {row.reservation.username ?? '—'} · {row.reservation.expected_occupancy} personas<br />
           {formatClock(row.reservation.start_time)} → {formatClock(row.reservation.end_time)}
         </p>
@@ -385,11 +387,11 @@ export default function RoomDetail() {
     <div className="space-y-4">
       {/* ── Context header ── */}
       <div className="flex flex-wrap items-start gap-3">
-        <Link to="/" className="mt-1 rounded-lg p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white" aria-label="Volver al resumen">
+        <Link to="/" className="btn btn-ghost mt-0.5 px-2" aria-label="Volver al resumen">
           <ArrowLeft size={18} />
         </Link>
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold text-white">
+          <h1 className="page-title">
             {room?.id} <span className="text-sm font-normal text-slate-400">{name}</span>
           </h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
@@ -412,7 +414,7 @@ export default function RoomDetail() {
       {error && <Card className="border-red-500/40 text-sm text-red-300">{error}</Card>}
 
       {coAlert && (
-        <Card className="border-red-500/50 bg-red-950/40">
+        <Card className="border-red-500/50">
           <p className="flex items-center gap-2 text-sm text-red-200">
             <AlertTriangle size={16} className="text-red-400" />
             <b>CO en {fmt(latest?.co_ppm)} ppm.</b> Supera el límite de 50 ppm: ventilar y evacuar el aula.
@@ -474,7 +476,7 @@ export default function RoomDetail() {
                 <p className="text-sm text-slate-400">Esta aula no tiene nodo: las lecturas llegan por la API, sin decisión local.</p>
               )}
             </div>
-            <div className="md:border-l md:border-slate-700/60 md:pl-4">
+            <div className="md:border-l md:border-slate-800 md:pl-4">
               <p className="mb-2 flex items-center gap-2 text-xs text-slate-400"><BrainCircuit size={14} /> Backend · {hasNode ? 'en sombra, no actúa' : 'decide'}</p>
               <Row label="Decisión">{ai ? <Chip tone={ai.tone}>{ai.label}</Chip> : '—'}</Row>
               <Row label="Motor">{MODEL_LABEL[action?.model ?? 'none'] ?? action?.model}</Row>
@@ -484,13 +486,13 @@ export default function RoomDetail() {
           </div>
 
           {comparison.total > 0 && (
-            <div className="mt-4 border-t border-slate-700/60 pt-3">
+            <div className="mt-4 border-t border-slate-800 pt-3">
               <div className="flex h-4 gap-px" role="img" aria-label={`Coincidencia en las últimas ${comparison.pairs.length} lecturas`}>
                 {comparison.pairs.map((p, i) => (
                   <span
                     key={i}
                     title={`${clockTime(p.ts)} · nodo: ${p.node} · IA: ${p.ai}`}
-                    className={`flex-1 rounded-sm ${p.node === p.ai ? 'bg-emerald-500/60' : 'bg-amber-400'}`}
+                    className={`flex-1 rounded-sm ${p.node === p.ai ? 'bg-emerald-500/50' : 'bg-amber-400/80'}`}
                   />
                 ))}
               </div>
@@ -506,19 +508,19 @@ export default function RoomDetail() {
         <div>
           <p className="mb-2 text-xs text-slate-400">Recientes: {spanLabel}</p>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <MiniChart title="Temperatura (°C)" data={chartData} dataKey="temperature" unit="°C" color="#38bdf8"
+            <MiniChart title="Temperatura (°C)" data={chartData} dataKey="temperature" unit="°C" color={C.data}
               refs={hasNode
                 ? [
-                    { y: NODE_COOL_ON, label: 'enfría ≥ 24.5', color: '#38bdf8', pos: 'insideTopLeft' },
-                    { y: NODE_SETPOINT, label: 'setpoint 24.0', color: '#22c55e', pos: 'insideTopRight' },
-                    { y: NODE_HEAT_ON, label: 'calienta ≤ 23.5', color: '#fb923c', pos: 'insideBottomLeft' },
+                    { y: NODE_COOL_ON, label: 'enfría ≥ 24.5', color: C.compare, pos: 'insideTopLeft' },
+                    { y: NODE_SETPOINT, label: 'setpoint 24.0', color: C.ok, pos: 'insideTopRight' },
+                    { y: NODE_HEAT_ON, label: 'calienta ≤ 23.5', color: C.compare, pos: 'insideBottomLeft' },
                   ]
-                : [{ y: target, label: 'setpoint', color: '#22c55e' }]} />
-            <MiniChart title="Humedad (%)" data={chartData} dataKey="humidity" unit="%" color="#a78bfa" />
-            <MiniChart title="CO₂ (ppm)" data={chartData} dataKey="co2" unit="ppm" color="#94a3b8"
-              refs={[{ y: 800, label: 'atención', color: '#fbbf24' }]} />
-            <MiniChart title="CO (ppm)" data={chartData} dataKey="co" unit="ppm" color="#f87171"
-              refs={[{ y: 50, label: 'alarma', color: '#ef4444' }]} />
+                : [{ y: target, label: 'setpoint', color: C.ok }]} />
+            <MiniChart title="Humedad (%)" data={chartData} dataKey="humidity" unit="%" color={C.data} />
+            <MiniChart title="CO₂ (ppm)" data={chartData} dataKey="co2" unit="ppm" color={C.data}
+              refs={[{ y: 800, label: 'atención', color: C.warn }]} />
+            <MiniChart title="CO (ppm)" data={chartData} dataKey="co" unit="ppm" color={C.data}
+              refs={[{ y: 50, label: 'alarma', color: C.alert }]} />
           </div>
         </div>
       </>)}
@@ -528,11 +530,11 @@ export default function RoomDetail() {
         <Card
           title="Últimas 24 h y proyección"
           aside={timelineRows.length > 0 && <>
-            <LegendItem className="h-2 w-3 rounded-sm bg-sky-400/40 ring-1 ring-sky-400">medida / con aire</LegendItem>
-            <LegendItem className="h-2 w-3 rounded-sm bg-orange-500/30 ring-1 ring-orange-500">sin aire</LegendItem>
-            <LegendItem className="w-3 border-t border-dashed border-red-500">setpoint del aire</LegendItem>
-            <LegendItem className="h-2 w-3 rounded-sm bg-green-500/20 ring-1 ring-green-500/60">±1 °C del objetivo</LegendItem>
-            <span className="flex items-center gap-1.5"><CalendarClock size={12} className="text-indigo-400" />reserva</span>
+            <LegendItem className="h-2 w-3 rounded-sm bg-sky-400/30 ring-1 ring-sky-400">medida / con aire</LegendItem>
+            <LegendItem className="w-3 border-t border-dashed border-slate-400">sin aire</LegendItem>
+            <LegendItem className="w-3 border-t border-dotted border-slate-200">setpoint del aire</LegendItem>
+            <LegendItem className="h-2 w-3 rounded-sm bg-emerald-500/15 ring-1 ring-emerald-500/50">±1 °C del objetivo</LegendItem>
+            <span className="flex items-center gap-1.5"><CalendarClock size={12} className="text-slate-400" />reserva</span>
           </>}
         >
           {timelineRows.length === 0 ? (
@@ -540,27 +542,27 @@ export default function RoomDetail() {
           ) : (
             <ResponsiveContainer width="100%" height={280}>
               <ComposedChart data={timelineRows} margin={{ top: 16, right: 8, left: -12, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <CartesianGrid strokeDasharray="3 3" stroke={C.grid} />
                 <XAxis dataKey="time" interval="preserveStartEnd" minTickGap={32} {...AXIS} />
                 <YAxis domain={tlDomain} allowDecimals={false} width={44} {...AXIS} />
-                <ReferenceArea y1={tlTarget - 1} y2={tlTarget + 1} fill="#22c55e" fillOpacity={0.1} stroke="#22c55e" strokeOpacity={0.3} ifOverflow="extendDomain" />
+                <ReferenceArea y1={tlTarget - 1} y2={tlTarget + 1} fill={C.ok} fillOpacity={0.08} stroke={C.ok} strokeOpacity={0.3} ifOverflow="extendDomain" />
                 {reservationSpans.map((s, i) => (
                   <ReferenceArea key={`${s.id}-${i}`} x1={s.x1} x2={s.x2}
-                    fill={s.past ? '#64748b' : '#6366f1'} fillOpacity={s.past ? 0.07 : 0.14}
-                    stroke={s.past ? '#64748b' : '#6366f1'} strokeOpacity={0.3} strokeDasharray="3 3" />
+                    fill="#94a3b8" fillOpacity={s.past ? 0.04 : 0.1}
+                    stroke="#94a3b8" strokeOpacity={0.25} strokeDasharray="3 3" />
                 ))}
                 <Tooltip content={<TimelineTooltip />} cursor={{ stroke: '#475569', strokeDasharray: '2 2' }} />
-                {nowLabel && <ReferenceLine x={nowLabel} stroke="#eab308" strokeDasharray="3 3" label={{ value: 'ahora', fill: '#eab308', position: 'top', fontSize: 11 }} />}
-                <Area type="monotone" dataKey="temperatura_real" stroke="#38bdf8" fill="#38bdf8" fillOpacity={0.15} strokeWidth={2} isAnimationActive={false} />
-                <Line type="monotone" dataKey="ac_setpoint" stroke="#ef4444" strokeDasharray="5 5" strokeWidth={2} dot={false} isAnimationActive={false} />
-                <Area type="monotone" dataKey="temperatura_sin_ac" stroke="#f97316" fill="#f97316" fillOpacity={0.15} strokeWidth={2} strokeDasharray="4 3" isAnimationActive={false} />
-                <Area type="monotone" dataKey="temperatura_con_ac" stroke="#38bdf8" strokeOpacity={0.5} fill="#38bdf8" fillOpacity={0.15} strokeWidth={2} isAnimationActive={false} />
+                {nowLabel && <ReferenceLine x={nowLabel} stroke="#e2e8f0" strokeDasharray="3 3" label={{ value: 'ahora', fill: '#e2e8f0', position: 'top', fontSize: 11 }} />}
+                <Area type="monotone" dataKey="temperatura_real" stroke={C.data} fill={C.data} fillOpacity={0.15} strokeWidth={2} isAnimationActive={false} />
+                <Line type="monotone" dataKey="ac_setpoint" stroke="#e2e8f0" strokeDasharray="2 4" strokeWidth={2} dot={false} isAnimationActive={false} />
+                <Area type="monotone" dataKey="temperatura_sin_ac" stroke={C.compare} fill={C.compare} fillOpacity={0.06} strokeWidth={2} strokeDasharray="4 3" isAnimationActive={false} />
+                <Area type="monotone" dataKey="temperatura_con_ac" stroke={C.data} strokeOpacity={0.5} fill={C.data} fillOpacity={0.12} strokeWidth={2} isAnimationActive={false} />
                 <Scatter
                   dataKey="reserva_icon"
                   shape={(props: { cx?: number; cy?: number }) => props.cx == null || props.cy == null ? <g /> : (
                     <g>
-                      <circle cx={props.cx} cy={props.cy} r={9} fill="#1e1b4b" stroke="#6366f1" strokeWidth={1.5} />
-                      <CalendarClock x={props.cx - 6} y={props.cy - 6} width={12} height={12} color="#818cf8" />
+                      <circle cx={props.cx} cy={props.cy} r={9} fill="#0f172a" stroke="#64748b" strokeWidth={1.5} />
+                      <CalendarClock x={props.cx - 6} y={props.cy - 6} width={12} height={12} color="#cbd5e1" />
                     </g>
                   )}
                 />
@@ -576,7 +578,7 @@ export default function RoomDetail() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] text-sm">
                 <thead>
-                  <tr className="border-b border-slate-700 text-left text-xs text-slate-400">
+                  <tr className="table-head">
                     {['Hora', 'Sensor', 'Temp.', 'Humedad', 'CO₂', 'CO', 'Nodo', 'IA'].map(h => <th key={h} className="pb-2 pr-4 font-normal">{h}</th>)}
                   </tr>
                 </thead>
@@ -586,13 +588,13 @@ export default function RoomDetail() {
                     const n = r.node_state?.accion ? NODE_STATE[r.node_state.accion] : null
                     const a = r.cognitive_action ? AI_STATE[r.cognitive_action.ac_status] : null
                     return (
-                      <tr key={`${r.sensor_id}-${r.timestamp}`} className="border-b border-slate-700/40">
+                      <tr key={`${r.sensor_id}-${r.timestamp}`} className="table-row">
                         <td className="py-1.5 pr-4 text-xs text-slate-400 tabular-nums">{parseUtc(r.timestamp).toLocaleString('es', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
                         <td className="py-1.5 pr-4 font-mono text-xs text-slate-300">{r.sensor_id}</td>
-                        <td className={`py-1.5 pr-4 tabular-nums ${toneText(LEVEL_TONE[levelTemp(r.temperature, t)])}`}>{fmt(r.temperature)} °C</td>
-                        <td className={`py-1.5 pr-4 tabular-nums ${toneText(LEVEL_TONE[levelHumedad(r.humidity)])}`}>{fmt(r.humidity, 0)} %</td>
-                        <td className={`py-1.5 pr-4 tabular-nums ${toneText(LEVEL_TONE[levelCO2(r.co2_ppm ?? 0)])}`}>{fmt(r.co2_ppm, 0)}</td>
-                        <td className={`py-1.5 pr-4 tabular-nums ${toneText(LEVEL_TONE[levelCO(r.co_ppm ?? 0)])}`}>{fmt(r.co_ppm)}</td>
+                        <td className={`py-1.5 pr-4 tabular-nums ${valueText(levelTemp(r.temperature, t))}`}>{fmt(r.temperature)} °C</td>
+                        <td className={`py-1.5 pr-4 tabular-nums ${valueText(levelHumedad(r.humidity))}`}>{fmt(r.humidity, 0)} %</td>
+                        <td className={`py-1.5 pr-4 tabular-nums ${valueText(levelCO2(r.co2_ppm ?? 0))}`}>{fmt(r.co2_ppm, 0)}</td>
+                        <td className={`py-1.5 pr-4 tabular-nums ${valueText(levelCO(r.co_ppm ?? 0))}`}>{fmt(r.co_ppm)}</td>
                         <td className="py-1.5 pr-4">{n ? <Chip tone={n.tone}>{n.label}</Chip> : <span className="text-xs text-slate-500">—</span>}</td>
                         <td className="py-1.5">{a ? <Chip tone={a.tone}>{a.label}</Chip> : <span className="text-xs text-slate-500">—</span>}</td>
                       </tr>
@@ -621,7 +623,7 @@ export default function RoomDetail() {
                   disabled={isGuest || policySaving}
                   onClick={() => handlePolicyChange(p.value)}
                   className={`rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed ${
-                    selected ? 'border-blue-500/60 bg-blue-500/10' : 'border-slate-700 hover:border-slate-500'
+                    selected ? 'border-blue-500/60 bg-blue-500/5' : 'border-slate-800 hover:border-slate-600'
                   }`}
                 >
                   <p className="flex items-center justify-between text-sm font-medium text-slate-100">
@@ -638,7 +640,7 @@ export default function RoomDetail() {
           {devices.length === 0 ? (
             <p className="py-4 text-sm text-slate-400">No hay sensores asignados. Asígnalos desde Infraestructura.</p>
           ) : (
-            <div className="divide-y divide-slate-700/60">
+            <div className="divide-y divide-slate-800">
               {devices.map(d => (
                 <div key={d.sensor_id} className="flex flex-wrap items-center justify-between gap-3 py-2">
                   <span className="flex items-center gap-2 font-mono text-sm text-slate-200">

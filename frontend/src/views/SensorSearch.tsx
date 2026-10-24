@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, RefreshCw, AlertCircle, CheckCircle, XCircle, Cpu } from 'lucide-react'
+import { Search, RefreshCw, AlertCircle, CheckCircle, XCircle, Cpu, ChevronsUpDown, ChevronUp, ChevronDown } from 'lucide-react'
 import api, { getApiErrorDetail } from '../api/client'
 import { EmptyState } from '../components/EmptyState'
 
@@ -60,25 +60,26 @@ export default function SensorSearch() {
   const controlCount = sensors.filter(s => s.control_enabled).length
 
   function SortIndicator({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <span className="text-slate-600 ml-1">↕</span>
-    return <span className="text-blue-400 ml-1">{sortAsc ? '↑' : '↓'}</span>
+    if (sortKey !== col) return <ChevronsUpDown size={12} className="ml-1 inline text-slate-600" />
+    return sortAsc
+      ? <ChevronUp size={12} className="ml-1 inline text-slate-200" />
+      : <ChevronDown size={12} className="ml-1 inline text-slate-200" />
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <Cpu size={22} className="text-blue-400" />
           <div>
-            <h1 className="text-xl font-bold text-white">Sensores</h1>
-            <p className="text-sm text-slate-400">Dispositivos registrados en el sistema</p>
+            <h1 className="page-title">Sensores</h1>
+            <p className="mt-1 text-xs text-slate-400">Dispositivos registrados en el sistema</p>
           </div>
         </div>
         <button
           onClick={() => fetchSensors(true)}
           disabled={loading || refreshing}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-100 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors"
+          className="btn btn-secondary"
         >
           <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} /> Actualizar
         </button>
@@ -87,17 +88,17 @@ export default function SensorSearch() {
       {/* Stats row */}
       {!loading && sensors.length > 0 && (
         <div className="flex flex-wrap gap-3 sm:gap-4">
-          <div className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm">
+          <div className="surface px-4 py-2 text-sm">
             <span className="text-slate-400">Total </span>
-            <span className="font-bold text-slate-100">{sensors.length}</span>
+            <span className="font-semibold text-slate-100">{sensors.length}</span>
           </div>
-          <div className="bg-slate-800 border border-emerald-700/40 rounded-lg px-4 py-2 text-sm">
+          <div className="surface px-4 py-2 text-sm">
             <span className="text-slate-400">Activos </span>
-            <span className="font-bold text-emerald-400">{activeCount}</span>
+            <span className="font-semibold text-slate-100">{activeCount}</span>
           </div>
-          <div className="bg-slate-800 border border-blue-700/40 rounded-lg px-4 py-2 text-sm">
+          <div className="surface px-4 py-2 text-sm">
             <span className="text-slate-400">Control habilitado </span>
-            <span className="font-bold text-blue-400">{controlCount}</span>
+            <span className="font-semibold text-slate-100">{controlCount}</span>
           </div>
         </div>
       )}
@@ -110,7 +111,7 @@ export default function SensorSearch() {
           placeholder="Filtrar por sensor ID o aula…"
           value={query}
           onChange={e => setQuery(e.target.value)}
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition"
+          className="field pl-9 pr-4"
         />
       </div>
 
@@ -130,10 +131,10 @@ export default function SensorSearch() {
 
       {/* Table */}
       {!loading && !error && (
-        <div className="bg-slate-800 rounded-xl overflow-x-auto border border-slate-700">
+        <div className="surface overflow-x-auto">
           <table className="w-full min-w-[560px] text-sm">
             <thead>
-              <tr className="text-slate-400 text-xs uppercase border-b border-slate-700 bg-slate-800/80">
+              <tr className="table-head">
                 {(
                   [
                     ['sensor_id', 'Sensor ID'],
