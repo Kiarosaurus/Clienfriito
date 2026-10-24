@@ -1,0 +1,1776 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calienfriito Monitor</title>
+<!--
+  Monitor en vivo del nodo Calienfriito (Aula A403).
+  Se suscribe por MQTT sobre WebSocket a los topicos que publica hardware/firmware/src/sketch.ino:
+    <base>/telemetry  JSON por ciclo (cada 1 s)
+    <base>/status     "online" / "offline" (LWT), retenido
+    <base>/config     umbrales del firmware, retenido
+  No usa el backend: habla directo con el broker. El frontend lo sirve en /monitor/
+  (Vite copia frontend/public tal cual); tambien funciona abierto como archivo.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&family=M+PLUS+Rounded+1c:wght@400;700;800&family=Mochiy+Pop+One&display=swap" rel="stylesheet">
+<script>
+  // Estilo visual (fallout | panel | anime) aplicado antes de pintar, para que no parpadee al cargar.
+  (() => {
+    let e = new URLSearchParams(location.search).get("estilo");
+    try { e = e || localStorage.getItem("calienfriito-estilo"); } catch {}
+    document.documentElement.dataset.estilo = ["panel", "anime"].includes(e) ? e : "fallout"; // "pcb" antiguo -> fallout
+  })();
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --page:           #edf3ee;
+  --pcb:            url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><g fill='none' stroke='%23d3e2d7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M0 40h60l20 20h60l20-20h60'/><path d='M30 220v-60l20-20v-50'/><path d='M120 0v30l20 20v40l-20 20h-40'/><path d='M220 150h-50l-20 20v50'/><path d='M0 180h40l15-15'/><path d='M180 0v15l20 20h20'/></g><g fill='%23c9a06a'><circle cx='50' cy='90' r='4'/><circle cx='80' cy='110' r='4'/><circle cx='55' cy='165' r='4'/><circle cx='150' cy='170' r='4'/><circle cx='160' cy='40' r='4'/></g><g fill='%23edf3ee'><circle cx='50' cy='90' r='1.6'/><circle cx='80' cy='110' r='1.6'/><circle cx='55' cy='165' r='1.6'/><circle cx='150' cy='170' r='1.6'/><circle cx='160' cy='40' r='1.6'/></g></svg>");
+  --surface-1:      #fbfdfa;
+  --surface-2:      #eef4ef;
+  --text-primary:   #0b0b0b;
+  --text-secondary: #4d5a51;
+  --text-muted:     #7f8a82;
+  --grid:           #dde7df;
+  --axis:           #b9c8bd;
+  --border:         rgba(20,80,45,0.16);
+  --pad:            #c9a06a;
+  --series-1:       #2a78d6;
+  --st-on:          #2a78d6;
+  --st-heating:     #eb6834;
+  --st-standby:     #1baf7a;
+  --st-precooling:  #eda100;
+  --st-disabled:    #c3c2b7;
+  --m-gris:         #c3c2b7;
+  --good:           #0ca30c;
+  --good-text:      #006300;
+  --critical:       #d03b3b;
+  --critical-wash:  rgba(208,59,59,0.10);
+}
+/* Tema oscuro: mascara de soldadura verde con pistas y vias de cobre */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page:           #0a1912;
+    --pcb:            url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><g fill='none' stroke='%23173727' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M0 40h60l20 20h60l20-20h60'/><path d='M30 220v-60l20-20v-50'/><path d='M120 0v30l20 20v40l-20 20h-40'/><path d='M220 150h-50l-20 20v50'/><path d='M0 180h40l15-15'/><path d='M180 0v15l20 20h20'/></g><g fill='%23b98a52'><circle cx='50' cy='90' r='4'/><circle cx='80' cy='110' r='4'/><circle cx='55' cy='165' r='4'/><circle cx='150' cy='170' r='4'/><circle cx='160' cy='40' r='4'/></g><g fill='%230a1912'><circle cx='50' cy='90' r='1.6'/><circle cx='80' cy='110' r='1.6'/><circle cx='55' cy='165' r='1.6'/><circle cx='150' cy='170' r='1.6'/><circle cx='160' cy='40' r='1.6'/></g></svg>");
+    --surface-1:      #10231a;
+    --surface-2:      #173024;
+    --text-primary:   #e8f3ec;
+    --text-secondary: #b3c8bb;
+    --text-muted:     #7d988a;
+    --grid:           #1d3a2b;
+    --axis:           #2d4d3c;
+    --border:         rgba(140,220,170,0.16);
+    --pad:            #b98a52;
+    --series-1:       #3987e5;
+    --st-on:          #3987e5;
+    --st-heating:     #d95926;
+    --st-standby:     #199e70;
+    --st-precooling:  #c98500;
+    --st-disabled:    #3c5446;
+    --m-gris:         #9aa79e;
+    --good-text:      #0ca30c;
+    --critical-wash:  rgba(208,59,59,0.18);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:           #0a1912;
+  --pcb:            url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><g fill='none' stroke='%23173727' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M0 40h60l20 20h60l20-20h60'/><path d='M30 220v-60l20-20v-50'/><path d='M120 0v30l20 20v40l-20 20h-40'/><path d='M220 150h-50l-20 20v50'/><path d='M0 180h40l15-15'/><path d='M180 0v15l20 20h20'/></g><g fill='%23b98a52'><circle cx='50' cy='90' r='4'/><circle cx='80' cy='110' r='4'/><circle cx='55' cy='165' r='4'/><circle cx='150' cy='170' r='4'/><circle cx='160' cy='40' r='4'/></g><g fill='%230a1912'><circle cx='50' cy='90' r='1.6'/><circle cx='80' cy='110' r='1.6'/><circle cx='55' cy='165' r='1.6'/><circle cx='150' cy='170' r='1.6'/><circle cx='160' cy='40' r='1.6'/></g></svg>");
+  --surface-1:      #10231a;
+  --surface-2:      #173024;
+  --text-primary:   #e8f3ec;
+  --text-secondary: #b3c8bb;
+  --text-muted:     #7d988a;
+  --grid:           #1d3a2b;
+  --axis:           #2d4d3c;
+  --border:         rgba(140,220,170,0.16);
+  --pad:            #b98a52;
+  --series-1:       #3987e5;
+  --st-on:          #3987e5;
+  --st-heating:     #d95926;
+  --st-standby:     #199e70;
+  --st-precooling:  #c98500;
+  --st-disabled:    #3c5446;
+  --m-gris:         #9aa79e;
+  --good-text:      #0ca30c;
+  --critical-wash:  rgba(208,59,59,0.18);
+}
+
+/* Tokens derivados: cada estilo puede redefinirlos (Panel dibuja las graficas en pantallas oscuras) */
+:root {
+  --fondo:          var(--pcb) 0 0 / 220px 220px, var(--page);
+  --chart-bg:       var(--surface-1);
+  --chart-grid:     var(--grid);
+  --chart-axis:     var(--axis);
+  --chart-ink:      var(--text-muted);
+  --chart-line:     var(--series-1);
+  --chart-tip-ink:  var(--text-primary);
+  --chart-tip-sub:  var(--text-secondary);
+}
+
+/* =====================================================================
+   Estilo PANEL: carcasa de metal cepillado, modulos atornillados,
+   displays LED y graficas en pantallas tipo osciloscopio.
+   ===================================================================== */
+:root[data-estilo="panel"] {
+  color-scheme: light;
+  --fondo: repeating-linear-gradient(90deg, rgba(255,255,255,.07) 0 1px, transparent 1px 3px),
+           linear-gradient(180deg, #a9afb6, #858c94);
+  --surface-1:      #d5d9de;
+  --surface-2:      #c6cbd1;
+  --text-primary:   #15181c;
+  --text-secondary: #3a4048;
+  --text-muted:     #545b64;
+  --grid:           #b7bdc4;
+  --axis:           #8d949c;
+  --border:         rgba(0,0,0,0.30);
+  --st-disabled:    #9aa0a7;
+  --m-gris:         #9aa0a7;
+  --bisel-luz:      rgba(255,255,255,.65);
+  --bisel-sombra:   rgba(0,0,0,.20);
+  --placa:          #2a2e34;
+  --placa-ink:      #e7eaee;
+  --chart-bg:       #0b1510;
+  --chart-grid:     #1a2c22;
+  --chart-axis:     #2c4436;
+  --chart-ink:      #7fa58c;
+  --chart-line:     #3ddc84;
+  --chart-tip-ink:  #d9f5e3;
+  --chart-tip-sub:  #7fa58c;
+  --led-bg:         #1a0707;
+  --led-ink:        #ff4433;
+  --led-ambar-bg:   #1a1206;
+  --led-ambar:      #ffb02e;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-estilo="panel"]:not([data-theme="light"]) {
+    color-scheme: dark;
+    --fondo: repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 1px, transparent 1px 3px),
+             linear-gradient(180deg, #33383e, #23272c);
+    --surface-1:      #3a3f45;
+    --surface-2:      #31363c;
+    --text-primary:   #eef1f4;
+    --text-secondary: #c4cad1;
+    --text-muted:     #a3abb4;
+    --grid:           #4a5057;
+    --axis:           #5d646c;
+    --border:         rgba(0,0,0,0.55);
+    --st-disabled:    #5d646c;
+    --m-gris:         #a3abb4;
+    --bisel-luz:      rgba(255,255,255,.12);
+    --bisel-sombra:   rgba(0,0,0,.45);
+    --placa:          #1c1f23;
+  }
+}
+:root[data-estilo="panel"][data-theme="dark"] {
+  color-scheme: dark;
+  --fondo: repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 1px, transparent 1px 3px),
+           linear-gradient(180deg, #33383e, #23272c);
+  --surface-1:      #3a3f45;
+  --surface-2:      #31363c;
+  --text-primary:   #eef1f4;
+  --text-secondary: #c4cad1;
+  --text-muted:     #a3abb4;
+  --grid:           #4a5057;
+  --axis:           #5d646c;
+  --border:         rgba(0,0,0,0.55);
+  --st-disabled:    #5d646c;
+  --m-gris:         #a3abb4;
+  --bisel-luz:      rgba(255,255,255,.12);
+  --bisel-sombra:   rgba(0,0,0,.45);
+  --placa:          #1c1f23;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  background: var(--fondo);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 1440px; margin: 0 auto; padding: 12px 16px 24px; }
+h1 { font-size: 15px; font-weight: 600; margin: 0; }
+h2 { font-size: 12px; font-weight: 600; margin: 0 0 6px; color: var(--text-secondary); }
+/* Serigrafia de PCB: titulos en mono, mayusculas, con designador de componente (U1, J2...) */
+.mono, .card h2, .sec-head h2 {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+}
+h2[data-ref]::before { content: attr(data-ref); color: var(--pad); font-weight: 700; margin-right: 7px; }
+.sub { color: var(--text-muted); font-size: 12px; }
+.muted { color: var(--text-muted); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---------- Cabecera ---------- */
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.titulo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.titulo .sub { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 8px; border-radius: 999px; font-size: 11px;
+  background: var(--surface-1); border: 1px solid var(--border); color: var(--text-secondary);
+}
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); flex: none; }
+.dot.ok { background: var(--good); box-shadow: 0 0 6px var(--good); }
+.dot.bad { background: var(--critical); box-shadow: 0 0 6px var(--critical); }
+button {
+  font: inherit; font-size: 11px; cursor: pointer;
+  padding: 2px 8px; border-radius: 6px;
+  background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
+}
+button:hover { background: var(--surface-2); }
+button[aria-pressed="true"] { background: var(--surface-2); font-weight: 600; }
+
+details.settings { position: relative; }
+details.settings summary { cursor: pointer; list-style: none; }
+details.settings summary::-webkit-details-marker { display: none; }
+.settings form {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 5;
+  display: flex; flex-direction: column; gap: 8px; width: min(340px, calc(100vw - 32px));
+  padding: 12px; border-radius: 8px; background: var(--surface-1); border: 1px solid var(--border);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.12);
+}
+.settings label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-secondary); }
+.settings input {
+  font: inherit; font-size: 12px; padding: 4px 8px; width: 100%;
+  background: var(--page); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px;
+}
+.settings .fila { display: flex; gap: 6px; }
+
+/* ---------- Rejillas ---------- */
+.grid { display: grid; gap: 8px; margin-bottom: 8px; }
+.g-top { grid-template-columns: minmax(0, 1.5fr) repeat(4, minmax(0, 1fr)) minmax(0, 1.55fr); }
+.g-charts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.g-bottom { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(170px, 1fr); }
+@media (max-width: 1180px) {
+  .g-top { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .g-top .c-estado { grid-column: span 2; }
+  .g-top .c-act { grid-column: span 2; }
+  .g-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .g-top { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .g-charts, .g-bottom { grid-template-columns: minmax(0, 1fr); }
+}
+.card {
+  /* Cada tarjeta es un "componente": cuatro pads de soldadura en las esquinas */
+  --pad-img: radial-gradient(circle, var(--pad) 0 1.6px, transparent 2.2px);
+  background:
+    var(--pad-img) left 3px top 3px / 6px 6px no-repeat,
+    var(--pad-img) right 3px top 3px / 6px 6px no-repeat,
+    var(--pad-img) left 3px bottom 3px / 6px 6px no-repeat,
+    var(--pad-img) right 3px bottom 3px / 6px 6px no-repeat,
+    var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px 12px; min-width: 0;
+}
+
+/* Resalte de una tarjeta cuando cambia algo (color en --hl) */
+.card.resalte { animation: resalte 1.6s ease-out; }
+@keyframes resalte {
+  0%, 25% { border-color: var(--hl); box-shadow: 0 0 0 3px color-mix(in srgb, var(--hl) 35%, transparent); }
+  100%    { box-shadow: 0 0 0 3px transparent; }
+}
+/* Alerta sostenida (alarma de CO, DHT sin lectura) */
+.card.alerta { border-color: var(--critical); animation: alerta 1.2s ease-in-out infinite; }
+@keyframes alerta { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--critical) 30%, transparent); } }
+.pop { animation: pop .45s ease-out; }
+@keyframes pop { 40% { transform: scale(1.08); } }
+.tile .value, .onoff { display: inline-block; transform-origin: left center; }
+
+/* Estado */
+.estado-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ---------- Mascota ---------- */
+/* La mascota vive en su propia tarjeta, abajo a la derecha, con un globo de dialogo */
+.c-mascota { display: flex; flex-direction: column; }
+.mascota-cuerpo { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 4px 0 10px; }
+.globo {
+  position: relative; max-width: 100%; padding: 6px 10px; border-radius: 10px; text-align: center;
+  font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);
+}
+.globo::after {
+  content: ""; position: absolute; left: 50%; bottom: -5px; width: 8px; height: 8px; margin-left: -4px;
+  background: var(--surface-2); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+/* Tamano flexible: hasta 96 px, y se achica (min. 48 px) si la tarjeta no tiene alto suficiente,
+   para no pisar el borde ni los tornillos. */
+/* En pantallas de escritorio muy bajas no caben globo y mascota: queda la mascota y la
+   frase pasa al tooltip (el <title> del SVG). */
+@media (min-width: 721px) and (max-height: 720px) { .c-mascota .globo { display: none; } }
+.mascota { flex: 0 1 96px; height: auto; width: auto; aspect-ratio: 1; min-height: 40px; max-height: 96px; overflow: visible; --m-color: var(--text-muted); }
+.mascota .m-piel { fill: var(--m-color); transition: fill .5s; }
+.mascota .m-rulo { fill: var(--m-color); opacity: .75; transition: fill .5s; }
+.mascota .m-brillo { fill: #fff; opacity: .28; }
+.mascota .m-mejilla { fill: #ff6f86; opacity: .35; }
+.mascota .m-tinta { fill: #1d1d1b; }
+.mascota .m-trazo { fill: none; stroke: #1d1d1b; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.mascota .m-todo, .mascota .m-gota, .mascota .m-copos, .mascota .m-zzz, .mascota .m-anillo, .mascota .m-alerta {
+  transform-box: fill-box; transform-origin: center bottom;
+}
+/* Cada parte solo se ve en los animos que la usan */
+.mascota [class*="m-ojos-"], .mascota [class*="m-boca-"], .mascota .m-gota, .mascota .m-copos,
+.mascota .m-bufanda, .mascota .m-zzz, .mascota .m-alerta, .mascota .m-anillo, .mascota .m-duda { display: none; }
+.mascota[data-mood="espera"]   :is(.m-ojos-normal, .m-boca-plana, .m-duda),
+.mascota[data-mood="templado"] :is(.m-ojos-felices, .m-boca-feliz),
+.mascota[data-mood="calor"]    :is(.m-ojos-normal, .m-boca-calor, .m-gota),
+.mascota[data-mood="frio"]     :is(.m-ojos-normal, .m-boca-frio, .m-copos, .m-bufanda),
+.mascota[data-mood="vacia"]    :is(.m-ojos-cerrados, .m-boca-dormido, .m-zzz),
+.mascota[data-mood="alarma"]   :is(.m-ojos-alarma, .m-boca-alarma, .m-alerta, .m-anillo) { display: inline; }
+
+.mascota[data-mood="templado"] .m-todo { animation: m-balanceo 2.6s ease-in-out infinite; }
+.mascota[data-mood="calor"] .m-todo    { animation: m-vaiven 1.8s ease-in-out infinite; }
+.mascota[data-mood="calor"] .m-gota    { animation: m-gotea 1.8s ease-in infinite; }
+.mascota[data-mood="frio"] .m-todo     { animation: m-tirita .16s linear infinite; }
+.mascota[data-mood="frio"] .m-copos    { animation: m-flota 3s ease-in-out infinite; }
+.mascota[data-mood="vacia"] .m-todo    { animation: m-respira 3.2s ease-in-out infinite; }
+.mascota[data-mood="vacia"] .m-zzz     { animation: m-sube 2.6s ease-out infinite; }
+.mascota[data-mood="alarma"] .m-todo   { animation: m-tiembla .32s linear infinite; }
+.mascota[data-mood="alarma"] .m-anillo { animation: m-onda 1.2s ease-out infinite; transform-origin: center; }
+.mascota[data-mood="espera"] .m-duda   { animation: m-flota 2.4s ease-in-out infinite; }
+.mascota.salto { animation: m-salto .55s cubic-bezier(.3,1.6,.5,1); }
+
+@keyframes m-balanceo { 50% { transform: translateY(-2px); } }
+@keyframes m-vaiven   { 25% { transform: rotate(-3deg); } 75% { transform: rotate(3deg); } }
+@keyframes m-gotea    { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(9px); opacity: 0; } }
+@keyframes m-tirita   { 25% { transform: translateX(-.7px); } 75% { transform: translateX(.7px); } }
+@keyframes m-flota    { 50% { transform: translateY(-2px); } }
+@keyframes m-respira  { 50% { transform: scale(1.03, .98); } }
+@keyframes m-sube     { 0% { transform: translate(0, 4px); opacity: 0; } 30% { opacity: 1; } 100% { transform: translate(3px, -5px); opacity: 0; } }
+@keyframes m-tiembla  { 25% { transform: rotate(-4deg); } 75% { transform: rotate(4deg); } }
+@keyframes m-onda     { 0% { transform: scale(.85); opacity: .7; } 100% { transform: scale(1.2); opacity: 0; } }
+@keyframes m-salto    { 40% { transform: translateY(-8px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .cadena, .candado, .cadenas, .grillete { animation: none !important; transition: none !important; }
+  .mascota, .mascota *, .events li.nuevo, .pop { animation: none !important; }
+}
+.estado-chip { width: 10px; height: 10px; border-radius: 3px; background: var(--st-disabled); flex: none; }
+.estado-nombre { font-size: 18px; font-weight: 600; line-height: 1.2; }
+.estado-desc { color: var(--text-secondary); font-size: 12px; }
+/* Espacio reservado para el motivo mas largo (3 lineas, el de histeresis): la tarjeta
+   tiene su alto final desde el inicio y no "salta" cuando cambia el mensaje. */
+.motivo { margin-top: 4px; font-size: 12px; color: var(--text-secondary); line-height: 1.4; min-height: calc(3 * 1.4em); }
+
+/* Sensores */
+.tile h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .value { font-size: 18px; font-weight: 600; line-height: 1.2; white-space: nowrap; }
+.tile .value small { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+.badge { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+.badge .ico { font-size: 11px; }
+.badge.critical { color: var(--text-primary); font-weight: 600; }
+.badge.critical .ico { color: var(--critical); }
+.badge.good .ico { color: var(--good); }
+
+/* Actuadores */
+/* ---------- Bloqueo por histeresis: cadenas y candado sobre los actuadores ---------- */
+.c-act { position: relative; }
+.c-act > .act-head, .c-act > dl { position: relative; z-index: 1; }
+/* El candado va en la fila del titulo (no flota encima): nunca tapa el rotulo ni las filas */
+.act-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; min-height: 19px; }
+.act-head h2 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cadenas { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; pointer-events: none; z-index: 0; display: none; }
+.cadena {
+  position: absolute; left: -25%; width: 150%; height: 14px; top: calc(50% - 7px);
+  background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='14'><rect x='1.5' y='3' width='15' height='8' rx='4' fill='none' stroke='%2332373d' stroke-width='3.6'/><rect x='1.5' y='3' width='15' height='8' rx='4' fill='none' stroke='%23c3c9d0' stroke-width='2'/><rect x='13' y='5.4' width='15.5' height='3.2' rx='1.6' fill='%2332373d'/><rect x='13.6' y='6' width='14.3' height='2' rx='1' fill='%23dfe3e7'/></svg>") repeat-x 0 0 / 28px 14px;
+  opacity: .5; transform-origin: center;
+}
+.cadena.a { transform: rotate(16deg); }
+.cadena.b { transform: rotate(-16deg); }
+.candado {
+  flex: none; display: none; align-items: center; gap: 5px;
+  padding: 1px 6px; border-radius: 4px; font: 600 11px/1.3 var(--mono, ui-monospace, monospace); white-space: nowrap;
+  background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);
+}
+.candado svg { width: 11px; height: 13px; flex: none; overflow: visible; }
+.candado .grillete { transform-box: fill-box; transform-origin: 100% 100%; }
+:root[data-estilo="panel"] .candado { background: var(--placa); color: var(--led-ambar); border-color: #121518; font-family: "Share Tech Mono", ui-monospace, monospace; font-size: 11.5px; }
+.c-act.bloqueado .cadenas, .c-act.liberando .cadenas { display: block; }
+.c-act.bloqueado .candado, .c-act.liberando .candado { display: inline-flex; }
+.c-act.bloqueado .cadena { animation: cadena-entra .45s ease-out; }
+.c-act.bloqueado .candado { animation: candado-cae .55s cubic-bezier(.3,1.6,.5,1); }
+/* Al liberarse: se abre el grillete y cadenas y candado se desvanecen hacia abajo */
+.c-act.liberando .grillete { transform: rotate(-30deg) translateY(-2px); transition: transform .25s; }
+.c-act.liberando .cadenas, .c-act.liberando .candado { animation: libera .7s ease-in forwards; }
+@keyframes cadena-entra { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes candado-cae { 0% { transform: translateY(-10px); opacity: 0; } 60% { opacity: 1; } }
+@keyframes libera { 0%, 30% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(10px); } }
+
+.act { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; align-items: center; margin: 0; font-size: 12px; }
+.act dt { color: var(--text-secondary); }
+.act dd { margin: 0; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.meter { flex: 1; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; min-width: 30px; }
+.meter > i { display: block; height: 100%; width: 0; background: var(--series-1); border-radius: 3px; transition: width .3s; }
+.onoff { font-weight: 600; min-width: 26px; }
+.led { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--border); background: transparent; flex: none; }
+/* Lampara de actuador: apagada se ve tenue; encendida, con su color y brillo (como en Wokwi) */
+.led.lampara { --lamp: #ffffff; width: 12px; height: 12px; background: var(--text-muted); border-color: var(--text-secondary); }
+.led.lampara.on { background: var(--lamp); border: 2px solid var(--text-secondary); box-shadow: 0 0 6px 1px color-mix(in srgb, var(--text-secondary) 45%, transparent); }
+:root[data-estilo="panel"] .led.lampara { background: #2b2f34; }
+:root[data-estilo="panel"] .led.lampara.on { background: radial-gradient(circle at 40% 35%, color-mix(in srgb, var(--lamp) 60%, #fff) 0 22%, var(--lamp) 60%); box-shadow: 0 0 0 2px var(--placa), 0 0 10px var(--lamp), 0 0 18px rgba(255,255,255,.45); }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Graficas */
+.sec-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 2px 0 6px; }
+.sec-head h2 { margin: 0 6px 0 0; }
+.sec-head .sp { flex: 1; }
+.chart-box { position: relative; height: 130px; }
+.g-charts h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.g-charts h2 .muted { font-weight: 400; font-size: 11px; }
+.strip-card { padding: 8px 12px; }
+.strip { display: flex; height: 10px; border-radius: 3px; overflow: hidden; background: var(--surface-2); }
+.strip i { display: block; height: 100%; min-width: 1px; }
+.strip-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin-top: 6px; font-size: 11px; color: var(--text-muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--text-secondary); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.sw { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex: none; }
+
+/* Eventos */
+.events { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; }
+.events li { display: grid; grid-template-columns: 58px 14px minmax(0, 1fr); gap: 6px; padding: 4px 0; border-top: 1px solid var(--grid); font-size: 12px; }
+.events li:first-child { border-top: 0; }
+.events li.nuevo { animation: entra .5s ease-out; }
+@keyframes entra { from { opacity: 0; transform: translateY(-6px); } }
+.events time { color: var(--text-muted); font-size: 11px; padding-top: 1px; }
+.events .ico { text-align: center; }
+.events .critical .ico { color: var(--critical); }
+.events .good .ico { color: var(--good); }
+.events .det { display: block; color: var(--text-muted); font-size: 11px; }
+
+/* Tabla */
+.table-wrap { max-height: 240px; overflow: auto; border: 1px solid var(--grid); border-radius: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 11px; }
+th, td { padding: 3px 8px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--grid); }
+th { position: sticky; top: 0; background: var(--surface-1); color: var(--text-secondary); font-weight: 600; z-index: 1; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+td.motivo-cell { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
+/* Tabla de la tarjeta: sin scroll horizontal. El motivo toma solo el ancho que sobra
+   (max-width: 0 + width: 100%) y se corta con "..."; si la tarjeta es angosta, se oculta.
+   El registro completo se ve en el modal "Ampliar". */
+.c-registro { container-type: inline-size; }
+.c-registro .table-wrap { overflow-x: hidden; overflow-y: auto; }
+.c-registro td.motivo-cell { max-width: 0; width: 100%; }
+@container (max-width: 560px) { .c-registro .col-motivo { display: none; } }
+/* Columnas de la tarjeta: 1 Hora, 2 Ciclo, 3 T, 4 HR, 5 MQ-135, 6 CO, 7 Estado, 8 Vent., 9 Calef.
+   En tarjetas angostas se ocultan las menos criticas; el modal siempre muestra todas. */
+@container (max-width: 500px) { .c-registro :is(th, td):is(:nth-child(2), :nth-child(9)) { display: none; } }
+@container (max-width: 400px) { .c-registro :is(th, td):is(:nth-child(4), :nth-child(8)) { display: none; } }
+
+/* ---------- Modal del registro completo ---------- */
+dialog.modal {
+  width: min(1240px, calc(100vw - 32px)); max-height: calc(100vh - 48px); margin: auto;
+  padding: 14px 18px; color: var(--text-primary); overflow: hidden;
+}
+dialog.modal[open] { display: flex; flex-direction: column; gap: 10px; animation: modal-entra .2s ease-out; }
+dialog.modal::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(2px); }
+@keyframes modal-entra { from { opacity: 0; transform: translateY(8px) scale(.99); } }
+.modal-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.modal-head h2 { margin: 0; }
+.modal-head .sp { flex: 1; }
+.modal-tabla { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--grid); border-radius: 6px; background: var(--surface-1); }
+.modal table { font-size: 12px; }
+.modal th, .modal td { padding: 5px 10px; vertical-align: top; }
+.modal td.motivo-cell { white-space: normal; min-width: 200px; }
+/* En pantallas medianas las celdas de texto pueden partirse en dos lineas para no forzar scroll */
+@media (max-width: 1100px) {
+  .modal :is(th, td):not(.n):not(.num) { white-space: normal; }
+  .modal th, .modal td { padding: 4px 6px; }
+  .modal td.motivo-cell { min-width: 160px; }
+}
+@media (prefers-reduced-motion: reduce) { dialog.modal[open] { animation: none; } }
+tr.alarm td { background: var(--critical-wash); }
+.st { display: inline-flex; align-items: center; gap: 5px; }
+
+.empty { padding: 16px; text-align: center; color: var(--text-muted); }
+
+/* En escritorio el dashboard ocupa exactamente el alto de la ventana: las graficas
+   y la fila de eventos/registro crecen para repartirse el espacio sobrante. */
+@media (min-width: 721px) {
+  main { height: max(100vh, 680px); display: flex; flex-direction: column; padding-bottom: 12px; }
+  .g-charts { flex: 3 1 0; min-height: 0; grid-auto-rows: minmax(0, 1fr); }
+  .g-charts .card { display: flex; flex-direction: column; }
+  .g-charts .chart-box { flex: 1; height: auto; min-height: 100px; }
+  .g-bottom { flex: 2 1 0; min-height: 0; grid-auto-rows: minmax(0, 1fr); margin-bottom: 0; }
+  .g-bottom .card { display: flex; flex-direction: column; min-height: 0; }
+  .events, .table-wrap { flex: 1; min-height: 0; max-height: none; }
+}
+
+/* ---------- Estilo PANEL: piezas ---------- */
+/* Modulo atornillado: cuatro tornillos de cabeza abombada y bisel en relieve */
+:root[data-estilo="panel"] .card {
+  --tornillo: radial-gradient(circle at 40% 35%, #fbfcfd 0 .8px, #c9cdd2 1.5px, #7d838b 3.2px, #43484f 3.9px, transparent 4.3px);
+  background:
+    var(--tornillo) left 4px top 4px / 10px 10px no-repeat,
+    var(--tornillo) right 4px top 4px / 10px 10px no-repeat,
+    var(--tornillo) left 4px bottom 4px / 10px 10px no-repeat,
+    var(--tornillo) right 4px bottom 4px / 10px 10px no-repeat,
+    linear-gradient(180deg, var(--surface-1), var(--surface-2));
+  border-radius: 10px; padding: 12px 16px;
+  box-shadow: inset 1px 1px 0 var(--bisel-luz), inset -1px -1px 0 var(--bisel-sombra),
+              0 2px 0 rgba(0,0,0,.28), 0 8px 16px rgba(0,0,0,.18);
+}
+/* Rotulos: placas oscuras atornilladas al modulo */
+:root[data-estilo="panel"] .card h2, :root[data-estilo="panel"] .sec-head h2 {
+  display: block; width: fit-content; max-width: 100%;
+  background: var(--placa); color: var(--placa-ink); padding: 2px 8px; border-radius: 3px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 1px 0 var(--bisel-luz);
+}
+:root[data-estilo="panel"] h2[data-ref]::before { color: var(--led-ambar); }
+:root[data-estilo="panel"] .card h2 .muted { color: #a9b0b8; }
+:root[data-estilo="panel"] h1 { text-shadow: 0 1px 0 var(--bisel-luz); }
+/* Displays LED de 7 segmentos para los valores */
+:root[data-estilo="panel"] .tile .value {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  width: 100%; height: 34px; overflow: hidden;
+  font-family: "Share Tech Mono", ui-monospace, monospace; font-weight: 400; font-size: 22px; letter-spacing: .04em;
+  background: var(--led-bg); color: var(--led-ink); padding: 1px 8px; border-radius: 4px;
+  text-shadow: 0 0 6px color-mix(in srgb, var(--led-ink) 70%, transparent);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.7), 0 1px 0 var(--bisel-luz);
+}
+:root[data-estilo="panel"] .tile .value small { color: inherit; opacity: .7; font-size: 13px; }
+:root[data-estilo="panel"] .estado-nombre {
+  font-family: "Share Tech Mono", ui-monospace, monospace; font-weight: 400; letter-spacing: .04em;
+  background: var(--led-ambar-bg); color: var(--led-ambar); padding: 0 8px; border-radius: 4px;
+  text-shadow: 0 0 6px color-mix(in srgb, var(--led-ambar) 70%, transparent);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.7);
+}
+/* Lamparas indicadoras */
+:root[data-estilo="panel"] .estado-chip, :root[data-estilo="panel"] .led {
+  width: 12px; height: 12px; border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--placa), 0 0 8px rgba(255,255,255,.35), inset 0 -2px 3px rgba(0,0,0,.35);
+}
+/* Pantallas tipo osciloscopio para las graficas */
+:root[data-estilo="panel"] .chart-box {
+  background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px),
+    var(--chart-bg);
+  border-radius: 6px; padding: 6px 6px 2px;
+  box-shadow: inset 0 0 0 2px #121518, inset 0 3px 12px rgba(0,0,0,.75), 0 1px 0 var(--bisel-luz);
+}
+:root[data-estilo="panel"] .table-wrap, :root[data-estilo="panel"] .globo { background: var(--surface-1); }
+:root[data-estilo="panel"] .meter { background: var(--placa); box-shadow: inset 0 1px 2px rgba(0,0,0,.6); }
+:root[data-estilo="panel"] .meter > i { background: var(--chart-line); box-shadow: 0 0 6px var(--chart-line); }
+:root[data-estilo="panel"] .strip { box-shadow: inset 0 0 0 2px var(--placa); padding: 2px; height: 14px; background: var(--placa); }
+/* Botones fisicos color crema, con recorrido al presionarlos */
+:root[data-estilo="panel"] button {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  background: linear-gradient(#f3ead6, #dccdab); color: #2b2118; border: 1px solid #9c8a64; border-radius: 4px;
+  box-shadow: 0 2px 0 #8b7a55, inset 0 1px 0 rgba(255,255,255,.7); position: relative; top: 0;
+}
+:root[data-estilo="panel"] button:hover { background: linear-gradient(#f7f0e0, #e3d6b8); }
+:root[data-estilo="panel"] button:active,
+:root[data-estilo="panel"] button[aria-pressed="true"] { top: 2px; box-shadow: 0 0 0 #8b7a55, inset 0 2px 3px rgba(0,0,0,.25); background: linear-gradient(#e6d9bb, #d6c59f); }
+/* Indicadores del encabezado como placas con LED */
+:root[data-estilo="panel"] .pill { background: var(--placa); color: var(--placa-ink); border-color: #121518; }
+:root[data-estilo="panel"] .settings form { background: var(--surface-1); }
+
+/* ---------- Textos acordes al estilo ---------- */
+:root { --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; --chart-font: var(--mono); }
+:root[data-estilo="panel"] { --chart-font: "Share Tech Mono", ui-monospace, monospace; }
+
+/* FALLOUT: todo el texto en tipografia de terminal */
+:root[data-estilo="fallout"] :is(.badge, .estado-desc, .act dt, .act dd, .legend, .strip-row,
+  .events li, .events time, th, td, .globo, .pill, #contador, .empty, .sub) {
+  font-family: "Share Tech Mono", ui-monospace, monospace;
+}
+:root[data-estilo="fallout"] :is(.badge, .estado-desc, .act dt, th, .legend) {
+  font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase;
+}
+
+/* PANEL: rotulacion grabada en el metal y lecturas en displays */
+:root[data-estilo="panel"] :is(.badge, .estado-desc, .act dt, .act dd, .legend, .strip-row,
+  .events li, .events time, th, td, .globo, .pill, #contador, .empty) {
+  font-family: var(--mono);
+}
+:root[data-estilo="panel"] :is(.badge, .estado-desc, .act dt, th, .legend) {
+  font-size: 10.5px; letter-spacing: .02em; text-transform: uppercase;
+}
+:root[data-estilo="panel"] .act { column-gap: 8px; }
+/* Ancho fijo para ON/OFF y el porcentaje: asi todas las barras miden lo mismo
+   aunque el texto cambie ("0 %" vs "100 %", "ON" vs "OFF"). */
+.act dd .num { white-space: nowrap; flex: none; width: 5ch; text-align: right; }
+.act .onoff { flex: none; width: 3.2ch; min-width: 0; }
+:root[data-estilo="panel"] :is(.badge, .estado-desc, .act dt) {
+  color: var(--text-secondary); text-shadow: 0 1px 0 var(--bisel-luz);
+}
+:root[data-estilo="panel"] .badge.critical { color: var(--text-primary); }
+:root[data-estilo="panel"] .onoff { font-family: "Share Tech Mono", var(--mono); font-size: 13px; letter-spacing: .06em; }
+/* El motivo de la decision se lee en un display verde, como las pantallas de las graficas */
+:root[data-estilo="panel"] .motivo {
+  margin-top: 8px; padding: 4px 8px; border-radius: 4px;
+  font-family: "Share Tech Mono", var(--mono); font-size: 12.5px; letter-spacing: .03em;
+  background: var(--chart-bg); color: #8fe3b0; text-shadow: 0 0 4px rgba(61,220,132,.45);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.7), 0 1px 0 var(--bisel-luz);
+  /* Se muestra completo (p. ej. "Histeresis: ... faltan 58 s del intervalo minimo de 60 s"
+     ocupa 3 lineas). Reserva esas 3 lineas + el relleno para no cambiar de alto. */
+  overflow-wrap: anywhere; line-height: 1.4; min-height: calc(3 * 1.4em + 8px);
+}
+:root[data-estilo="panel"] .motivo::before { content: "> "; color: var(--chart-ink); }
+:root[data-estilo="panel"] .events .det, :root[data-estilo="panel"] td.motivo-cell { font-size: 10.5px; }
+
+/* =====================================================================
+   Estilo FALLOUT: terminal RobCo / Pip-Boy en un monitor CRT de fosforo verde.
+   Misma distribucion que Panel (rotulos, displays, pantallas, botones), siempre oscuro.
+   Se conservan el rojo de la alarma de CO y los colores de los estados (son datos).
+   ===================================================================== */
+:root[data-estilo="fallout"] {
+  color-scheme: dark;
+  --fo:             #3dff7a;
+  --fo-brillo:      #b9ffd0;
+  --fo-oscuro:      #031007;
+  --fondo:          radial-gradient(ellipse at center, #0b1d11 0%, #050c07 70%, #020503 100%);
+  --page:           #040a06;
+  --surface-1:      #06120a;
+  --surface-2:      #0a1d10;
+  --text-primary:   #b9ffd0;
+  --text-secondary: #5fe08d;
+  --text-muted:     #34a861;
+  --grid:           #103a1f;
+  --axis:           #1d5c34;
+  --border:         rgba(61,255,122,.38);
+  --series-1:       #3dff7a;
+  --good:           #3dff7a;
+  --good-text:      #3dff7a;
+  --critical:       #ff4d4d;
+  --critical-wash:  rgba(255,77,77,.16);
+  --st-on:          #3987e5;
+  --st-heating:     #d95926;
+  --st-standby:     #199e70;
+  --st-precooling:  #c98500;
+  --st-disabled:    #3f5a48;
+  --m-gris:         #8fb89c;
+  --chart-bg:       #020803;
+  --chart-grid:     #0f3a1d;
+  --chart-axis:     #1f6b3b;
+  --chart-ink:      #4fd47a;
+  --chart-line:     #3dff7a;
+  --chart-tip-ink:  #c8ffd9;
+  --chart-tip-sub:  #4fd47a;
+  --chart-font:     "VT323", "Share Tech Mono", monospace;
+  --chart-font-size: 14;
+}
+:root[data-estilo="fallout"] body { font-family: "Share Tech Mono", ui-monospace, monospace; text-shadow: 0 0 2px rgba(61,255,122,.35); }
+/* Monitor CRT: lineas de barrido, vineta y un leve parpadeo */
+:root[data-estilo="fallout"] body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 50;
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,.20) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at center, transparent 62%, rgba(0,0,0,.5) 100%);
+  animation: crt-parpadeo 7s infinite;
+}
+@keyframes crt-parpadeo { 0%, 96%, 100% { opacity: 1; } 97% { opacity: .82; } 98% { opacity: .95; } }
+@keyframes cursor-terminal { 50% { opacity: 0; } }
+:root[data-estilo="fallout"] h1 {
+  font-family: "VT323", monospace; font-size: 24px; font-weight: 400; letter-spacing: .04em;
+  color: var(--fo-brillo); text-shadow: 0 0 8px rgba(61,255,122,.6);
+}
+/* Modulo: marco tenue con esquinas en corchete (en vez de tornillos) */
+:root[data-estilo="fallout"] .card {
+  --esq: var(--fo);
+  background:
+    linear-gradient(var(--esq), var(--esq)) left top / 12px 2px no-repeat,
+    linear-gradient(var(--esq), var(--esq)) left top / 2px 12px no-repeat,
+    linear-gradient(var(--esq), var(--esq)) right top / 12px 2px no-repeat,
+    linear-gradient(var(--esq), var(--esq)) right top / 2px 12px no-repeat,
+    linear-gradient(var(--esq), var(--esq)) left bottom / 12px 2px no-repeat,
+    linear-gradient(var(--esq), var(--esq)) left bottom / 2px 12px no-repeat,
+    linear-gradient(var(--esq), var(--esq)) right bottom / 12px 2px no-repeat,
+    linear-gradient(var(--esq), var(--esq)) right bottom / 2px 12px no-repeat,
+    var(--surface-1);
+  border: 1px solid rgba(61,255,122,.22); border-radius: 2px; padding: 12px 16px;
+  box-shadow: inset 0 0 24px rgba(61,255,122,.06), 0 0 10px rgba(61,255,122,.06);
+}
+/* La alerta (alarma de CO, DHT sin lectura) debe ganarle al marco verde */
+:root[data-estilo="fallout"] .card.alerta { --esq: var(--critical); border-color: var(--critical); }
+/* Rotulos: pestana invertida, como la opcion seleccionada del Pip-Boy */
+:root[data-estilo="fallout"] .card h2, :root[data-estilo="fallout"] .sec-head h2 {
+  display: block; width: fit-content; max-width: 100%;
+  background: var(--fo); color: var(--fo-oscuro); padding: 1px 8px; border-radius: 0;
+  font-family: "VT323", monospace; font-size: 16px; line-height: 1.15; letter-spacing: .06em;
+  text-shadow: none; box-shadow: 0 0 8px rgba(61,255,122,.35);
+}
+:root[data-estilo="fallout"] h2[data-ref]::before { color: #0b4a20; }
+:root[data-estilo="fallout"] .card h2 .muted { color: #0b4a20; }
+/* Displays de fosforo para los valores (mismo tamano fijo que en Panel) */
+:root[data-estilo="fallout"] .tile .value {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  width: 100%; height: 34px; overflow: hidden; padding: 0 8px;
+  font-family: "VT323", monospace; font-weight: 400; font-size: 28px; letter-spacing: .04em;
+  color: var(--fo-brillo); text-shadow: 0 0 8px rgba(61,255,122,.7);
+  background: var(--chart-bg); border: 1px solid rgba(61,255,122,.35);
+}
+:root[data-estilo="fallout"] .tile .value small { color: var(--text-secondary); font-size: 17px; }
+:root[data-estilo="fallout"] .estado-nombre {
+  font-family: "VT323", monospace; font-weight: 400; font-size: 24px; letter-spacing: .05em; line-height: 1.1;
+  background: var(--fo); color: var(--fo-oscuro); padding: 0 8px; text-shadow: none;
+  box-shadow: 0 0 10px rgba(61,255,122,.45);
+}
+/* Motivo: linea de terminal con cursor parpadeante */
+:root[data-estilo="fallout"] .motivo {
+  margin-top: 8px; padding: 4px 8px; font-family: "VT323", monospace; font-size: 17px; line-height: 1.1;
+  min-height: calc(3 * 1.1em + 8px); overflow-wrap: anywhere;
+  background: var(--chart-bg); color: var(--fo); border: 1px solid rgba(61,255,122,.3);
+  text-shadow: 0 0 5px rgba(61,255,122,.55);
+}
+:root[data-estilo="fallout"] .motivo::before { content: "> "; }
+:root[data-estilo="fallout"] .motivo::after { content: "\258C"; margin-left: 2px; animation: cursor-terminal 1s steps(1) infinite; }
+/* Graficas en pantallas CRT */
+:root[data-estilo="fallout"] .chart-box {
+  background: repeating-linear-gradient(0deg, rgba(61,255,122,.035) 0 1px, transparent 1px 3px), var(--chart-bg);
+  border: 1px solid rgba(61,255,122,.3); padding: 6px 6px 2px; box-shadow: inset 0 0 18px rgba(61,255,122,.08);
+}
+/* Botones de terminal: contorno verde; el activo, invertido */
+:root[data-estilo="fallout"] button {
+  font-family: "VT323", monospace; font-size: 16px; line-height: 1.1; letter-spacing: .06em; text-transform: uppercase;
+  background: transparent; color: var(--fo); border: 1px solid var(--fo); border-radius: 0; padding: 1px 8px;
+  text-shadow: 0 0 5px rgba(61,255,122,.6);
+}
+:root[data-estilo="fallout"] button:hover { background: rgba(61,255,122,.12); }
+:root[data-estilo="fallout"] button:active,
+:root[data-estilo="fallout"] button[aria-pressed="true"] { background: var(--fo); color: var(--fo-oscuro); text-shadow: none; }
+:root[data-estilo="fallout"] .pill { background: transparent; border-color: rgba(61,255,122,.45); color: var(--text-secondary); border-radius: 0; }
+:root[data-estilo="fallout"] .settings form { background: var(--surface-1); border-radius: 0; }
+:root[data-estilo="fallout"] .onoff { font-family: "VT323", monospace; font-size: 17px; letter-spacing: .06em; color: var(--fo-brillo); }
+/* Lamparas: apagadas en verde oscuro, encendidas en fosforo brillante (el LED RGB conserva su color) */
+:root[data-estilo="fallout"] .led.lampara { --lamp: #c8ffd9; background: #0b2a15; border: 1px solid rgba(61,255,122,.5); }
+:root[data-estilo="fallout"] .led.lampara.on { background: var(--lamp); box-shadow: 0 0 8px var(--lamp), 0 0 2px var(--fo); }
+/* Barra por segmentos, como la barra de vida del Pip-Boy */
+:root[data-estilo="fallout"] .meter { height: 8px; border-radius: 0; background: #06200f; border: 1px solid rgba(61,255,122,.35); }
+:root[data-estilo="fallout"] .meter > i { border-radius: 0; background: repeating-linear-gradient(90deg, var(--fo) 0 6px, transparent 6px 8px); box-shadow: 0 0 6px rgba(61,255,122,.5); }
+:root[data-estilo="fallout"] .strip { border: 1px solid rgba(61,255,122,.35); border-radius: 0; padding: 2px; height: 14px; background: var(--chart-bg); }
+:root[data-estilo="fallout"] :is(.table-wrap, .modal-tabla) { background: var(--chart-bg); border-color: rgba(61,255,122,.3); border-radius: 0; }
+:root[data-estilo="fallout"] th { background: var(--chart-bg); color: var(--fo); }
+:root[data-estilo="fallout"] .globo { background: var(--chart-bg); border-color: var(--fo); border-radius: 2px; color: var(--fo-brillo); }
+:root[data-estilo="fallout"] .globo::after { background: var(--chart-bg); border-color: var(--fo); }
+:root[data-estilo="fallout"] .candado { background: var(--chart-bg); color: var(--fo); border-color: var(--fo); border-radius: 0; font-family: "VT323", monospace; font-size: 15px; }
+/* Mascota y cadenas en monocromo de fosforo (en alarma la mascota conserva el rojo) */
+:root[data-estilo="fallout"] .mascota:not([data-mood="alarma"]),
+:root[data-estilo="fallout"] .cadena {
+  filter: grayscale(1) sepia(1) hue-rotate(75deg) saturate(4) brightness(.95) drop-shadow(0 0 6px rgba(61,255,122,.45));
+}
+
+/* =====================================================================
+   Estilo ANIME (kawaii): pasteles suaves, esquinas muy redondeadas, costuras
+   punteadas tipo peluche/sticker, corazones y estrellitas, botones de gelatina.
+   Misma distribucion que Industrial y Fallout. Dia pastel / noche pastel.
+   ===================================================================== */
+:root[data-estilo="anime"] {
+  color-scheme: light;
+  --kw-fuente:      "M PLUS Rounded 1c", system-ui, sans-serif;
+  --kw-pop:         "Mochiy Pop One", "M PLUS Rounded 1c", system-ui, sans-serif;
+  --kw-borde:       #ffc2da;
+  --kw-costura:     #ffd6e7;
+  --kw-sombra:      0 6px 0 #ffd9e9, 0 10px 22px rgba(255,143,184,.18);
+  --kw-rosa:        #e0508c;
+  --kw-rosa-texto:  #8a2e5c;
+  --kw-ref:         #e0508c;
+  --kw-rosa-pastel: #ffd6e7;
+  --kw-gelatina:    #ffc4dc;
+  --kw-nube:        #ffffff;
+  --kw-durazno:     #ffe9dc;
+  --kw-celeste:     #dff0ff;
+  --kw-menta:       #dcf7e8;
+  --kw-lavanda:     #ece4ff;
+  --fondo:
+    radial-gradient(circle, rgba(255,170,205,.35) 0 3px, transparent 3.5px) 0 0 / 34px 34px,
+    radial-gradient(circle, rgba(182,156,255,.28) 0 2px, transparent 2.5px) 17px 17px / 34px 34px,
+    linear-gradient(170deg, #fff0f7 0%, #f3f0ff 50%, #eaf7ff 100%);
+  --page:           #fff4fa;
+  --surface-1:      #fffafc;
+  --surface-2:      #fff0f6;
+  --text-primary:   #5b3a5e;
+  --text-secondary: #7d5a80;
+  --text-muted:     #846182;
+  --grid:           #f6e0ec;
+  --axis:           #f0c4da;
+  --border:         var(--kw-borde);
+  --series-1:       #e0508c;
+  --st-disabled:    #d7c6d8;
+  --m-gris:         #d9cde0;
+  --chart-bg:       #ffffff;
+  --chart-grid:     #fbe6f0;
+  --chart-axis:     #f3c6dc;
+  --chart-ink:      #846182;
+  --chart-line:     #e0508c;
+  --chart-tip-ink:  #5b3a5e;
+  --chart-tip-sub:  #846182;
+  --chart-font:     "M PLUS Rounded 1c", system-ui, sans-serif;
+  --chart-font-size: 11;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-estilo="anime"]:not([data-theme="light"]) {
+    color-scheme: dark;
+    --kw-borde:       #6d4f8f;
+    --kw-costura:     #57407a;
+    --kw-sombra:      0 6px 0 #1c1530, 0 10px 22px rgba(0,0,0,.35);
+    --kw-rosa:        #ff8fbf;
+    --kw-rosa-texto:  #3a1730;
+    --kw-ref:         #a0306a;
+    --kw-rosa-pastel: #ff9cc6;
+    --kw-gelatina:    #ff9cc6;
+    --kw-nube:        #3d3160;
+    --kw-durazno:     #3d3160;
+    --kw-celeste:     #33355f;
+    --kw-menta:       #2f3c56;
+    --kw-lavanda:     #3b3165;
+    --fondo:
+      radial-gradient(circle, rgba(255,170,215,.20) 0 2.5px, transparent 3px) 0 0 / 34px 34px,
+      radial-gradient(circle, rgba(200,180,255,.18) 0 1.5px, transparent 2px) 17px 17px / 34px 34px,
+      linear-gradient(170deg, #241b3a 0%, #2a2146 50%, #1f2440 100%);
+    --page:           #241b3a;
+    --surface-1:      #2f2548;
+    --surface-2:      #382c57;
+    --text-primary:   #fff0fa;
+    --text-secondary: #e3d2f2;
+    --text-muted:     #c4b2dc;
+    --grid:           #3d3160;
+    --axis:           #5a4783;
+    --critical:       #ff6b6b;
+    --st-disabled:    #5d5480;
+    --m-gris:         #c9bce4;
+    --chart-bg:       #261e3d;
+    --chart-grid:     #352a55;
+    --chart-axis:     #5a4783;
+    --chart-ink:      #c4b2dc;
+    --chart-line:     #ff8fbf;
+    --chart-tip-ink:  #fff0fa;
+    --chart-tip-sub:  #c4b2dc;
+  }
+}
+:root[data-estilo="anime"] body { font-family: var(--kw-fuente); }
+:root[data-estilo="anime"] h1 { font-family: var(--kw-pop); font-weight: 400; font-size: 18px; color: var(--kw-rosa); }
+:root[data-estilo="anime"] h1::before { content: "♡ "; }
+:root[data-estilo="anime"] h1::after { content: " ✧"; color: #b69cff; }
+/* Tarjeta tipo sticker: borde pastel, esquinas muy redondeadas y costura punteada */
+:root[data-estilo="anime"] .card {
+  background: var(--surface-1); border: 2px solid var(--kw-borde); border-radius: 22px; padding: 12px 16px;
+  box-shadow: var(--kw-sombra);
+  outline: 2px dashed var(--kw-costura); outline-offset: -8px;
+}
+:root[data-estilo="anime"] .card.alerta { border-color: var(--critical); outline-color: color-mix(in srgb, var(--critical) 45%, transparent); }
+/* Rotulos: etiqueta pastel con corazoncito */
+:root[data-estilo="anime"] .card h2, :root[data-estilo="anime"] .sec-head h2 {
+  display: block; width: fit-content; max-width: 100%;
+  background: var(--kw-rosa-pastel); color: var(--kw-rosa-texto); border-radius: 999px;
+  padding: 1px 10px 1px 8px; font-family: var(--kw-fuente); font-weight: 800; font-size: 11px; line-height: 1.5; letter-spacing: .02em;
+}
+:root[data-estilo="anime"] h2[data-ref]::before { content: "♡ " attr(data-ref); color: var(--kw-ref); margin-right: 5px; }
+:root[data-estilo="anime"] .card h2 .muted { color: var(--kw-rosa-texto); opacity: .75; }
+/* Valores en burbujas pastel (cada sensor con su color decorativo) */
+:root[data-estilo="anime"] .tile .value {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  width: 100%; height: 34px; overflow: hidden; padding: 0 12px;
+  font-family: var(--kw-pop); font-weight: 400; font-size: 20px; color: var(--text-primary);
+  background: var(--kw-nube); border-radius: 999px; box-shadow: inset 0 -3px 0 rgba(0,0,0,.05);
+}
+:root[data-estilo="anime"] #vT { background: var(--kw-durazno); }
+:root[data-estilo="anime"] #vH { background: var(--kw-celeste); }
+:root[data-estilo="anime"] #vCO { background: var(--kw-menta); }
+:root[data-estilo="anime"] #vMQ { background: var(--kw-lavanda); }
+:root[data-estilo="anime"] .tile .value small { color: var(--kw-rosa); font-family: var(--kw-fuente); font-weight: 800; font-size: 13px; }
+:root[data-estilo="anime"] .estado-nombre {
+  font-family: var(--kw-pop); font-weight: 400; font-size: 17px; color: #fff; line-height: 1.4;
+  background: linear-gradient(180deg, #ff9cc6, var(--kw-rosa)); border-radius: 999px; padding: 0 12px;
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.45), 0 3px 0 rgba(224,80,140,.35);
+}
+:root[data-estilo="anime"] .estado-nombre::after { content: " ♡"; font-size: 13px; }
+:root[data-estilo="anime"] .estado-chip { border-radius: 50%; width: 13px; height: 13px; box-shadow: 0 0 0 3px var(--surface-2); }
+/* Motivo en una nube de dialogo (alto reservado para 3 lineas) */
+:root[data-estilo="anime"] .motivo {
+  position: relative; margin-top: 12px; padding: 6px 12px; border-radius: 18px;
+  background: var(--kw-nube); border: 2px solid var(--kw-borde); color: var(--text-primary);
+  font-family: var(--kw-fuente); font-weight: 700; font-size: 12px; line-height: 1.4;
+  min-height: calc(3 * 1.4em + 16px); overflow-wrap: anywhere;
+}
+:root[data-estilo="anime"] .motivo::before {
+  content: ""; position: absolute; left: 20px; top: -8px; width: 12px; height: 12px;
+  background: var(--kw-nube); border-left: 2px solid var(--kw-borde); border-top: 2px solid var(--kw-borde);
+  border-radius: 3px 0 0 0; transform: rotate(45deg);
+}
+:root[data-estilo="anime"] .motivo::after { content: " ✧"; color: #b69cff; }
+/* Graficas en pantallas blancas redondeadas */
+:root[data-estilo="anime"] .chart-box { background: var(--chart-bg); border: 2px solid var(--kw-borde); border-radius: 16px; padding: 6px 6px 2px; }
+/* Botones de gelatina con brillo */
+:root[data-estilo="anime"] button {
+  font-family: var(--kw-pop); font-weight: 400; font-size: 11px; position: relative; top: 0;
+  background: linear-gradient(180deg, #fff 0%, var(--kw-gelatina) 100%); color: var(--kw-rosa-texto);
+  border: 2px solid var(--kw-borde); border-radius: 999px; padding: 2px 11px;
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.7), 0 3px 0 var(--kw-borde);
+}
+:root[data-estilo="anime"] button:hover { filter: brightness(1.03); }
+:root[data-estilo="anime"] button:active,
+:root[data-estilo="anime"] button[aria-pressed="true"] { top: 2px; box-shadow: inset 0 2px 0 rgba(255,255,255,.5), 0 1px 0 var(--kw-borde); background: var(--kw-rosa-pastel); }
+:root[data-estilo="anime"] .pill { background: var(--surface-1); border: 2px solid var(--kw-borde); color: var(--text-secondary); font-weight: 700; }
+:root[data-estilo="anime"] .settings form { background: var(--surface-1); border: 2px solid var(--kw-borde); border-radius: 18px; }
+:root[data-estilo="anime"] :is(.badge, .act dt, .estado-desc, .legend, th) { font-weight: 700; }
+:root[data-estilo="anime"] .onoff { font-family: var(--kw-pop); font-weight: 400; color: var(--kw-rosa); }
+/* Barras rayadas pastel */
+:root[data-estilo="anime"] .meter { height: 10px; border-radius: 999px; background: var(--surface-2); border: 2px solid var(--kw-borde); }
+:root[data-estilo="anime"] .meter > i { border-radius: 999px; background: repeating-linear-gradient(45deg, #ff9cc6 0 6px, #ffc4dc 6px 12px); }
+:root[data-estilo="anime"] .led.lampara { border: 2px solid var(--kw-borde); }
+:root[data-estilo="anime"] .led.lampara.on { box-shadow: 0 0 9px #ff9cc6, 0 0 2px var(--kw-rosa); }
+:root[data-estilo="anime"] .strip { border: 2px solid var(--kw-borde); border-radius: 999px; padding: 2px; height: 16px; background: var(--surface-1); }
+:root[data-estilo="anime"] .strip i:first-child { border-radius: 999px 0 0 999px; }
+:root[data-estilo="anime"] .strip i:last-child { border-radius: 0 999px 999px 0; }
+:root[data-estilo="anime"] :is(.table-wrap, .modal-tabla) { background: var(--surface-1); border: 2px solid var(--kw-borde); border-radius: 16px; }
+:root[data-estilo="anime"] th { background: var(--kw-rosa-pastel); color: var(--kw-rosa-texto); }
+:root[data-estilo="anime"] .globo { background: var(--kw-nube); border: 2px solid var(--kw-borde); border-radius: 20px; font-weight: 700; }
+:root[data-estilo="anime"] .globo::after { background: var(--kw-nube); border-color: var(--kw-borde); border-width: 0 2px 2px 0; border-style: solid; }
+:root[data-estilo="anime"] .candado { background: var(--kw-nube); color: var(--text-primary); border: 2px solid var(--kw-borde); border-radius: 999px; font-family: var(--kw-fuente); font-weight: 800; font-size: 10.5px; padding: 0 7px; }
+/* Mascota con brillito */
+:root[data-estilo="anime"] .mascota { filter: drop-shadow(0 4px 0 rgba(255,156,198,.35)); }
+
+/* ---------- Selector de estilo ---------- */
+.estilos { display: inline-flex; gap: 0; }
+.estilos button { border-radius: 0; }
+.estilos button:first-child { border-radius: 6px 0 0 6px; }
+.estilos button:last-child { border-radius: 0 6px 6px 0; }
+.estilos button + button { margin-left: -1px; }
+:root[data-estilo="panel"] .estilos button:first-child { border-radius: 4px 0 0 4px; }
+:root[data-estilo="panel"] .estilos button:last-child { border-radius: 0 4px 4px 0; }
+:root[data-estilo="anime"] .estilos button:first-child { border-radius: 999px 0 0 999px; }
+:root[data-estilo="anime"] .estilos button:last-child { border-radius: 0 999px 999px 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="titulo">
+      <h1>Calienfriito · Aula A403</h1>
+      <span class="sub">CCS-NODO-A403 · rev 1.0 · MQTT en vivo</span>
+    </div>
+    <div class="pills" aria-live="polite">
+      <span class="pill" id="pillBroker"><span class="dot"></span><span>Broker: conectando…</span></span>
+      <span class="pill" id="pillNodo"><span class="dot"></span><span>Nodo: sin datos</span></span>
+      <span class="pill num" id="pillUltimo">Última lectura: —</span>
+      <span class="pill num" id="pillSim" hidden title="Velocidad de la simulación: tiempo del ESP32 frente al tiempo real">Simulación: —</span>
+      <div class="estilos" role="group" aria-label="Estilo visual">
+        <button type="button" data-estilo="fallout" aria-pressed="false" title="Terminal RobCo / Pip-Boy">Fallout</button>
+        <button type="button" data-estilo="panel" aria-pressed="false" title="Consola de control metálica">Metal</button>
+        <button type="button" data-estilo="anime" aria-pressed="false" title="Estilo anime kawaii">Anime</button>
+      </div>
+      <details class="settings">
+        <summary class="pill" title="Broker y tópico">⚙ Conexión</summary>
+        <form id="formConexion">
+          <label>Broker (WebSocket)<input id="inBroker" required></label>
+          <label>Tópico base<input id="inBase" required></label>
+          <div class="fila"><button type="submit">Reconectar</button><button type="button" id="btnDefaults">Valores por defecto</button></div>
+        </form>
+      </details>
+    </div>
+  </header>
+
+  <section class="grid g-top">
+    <div class="card c-estado" id="cardEstado">
+      <h2 data-ref="U1">Estado del control</h2>
+      <div class="estado-head">
+        <span class="estado-chip" id="estadoChip"></span>
+        <span class="estado-nombre" id="estadoNombre">—</span>
+        <span class="estado-desc" id="estadoDesc">Esperando telemetría…</span>
+      </div>
+      <div class="motivo" id="motivo" title="Motivo de la decisión">—</div>
+    </div>
+    <div class="card tile" id="cardT"><h2 data-ref="S1">Temperatura</h2><div class="value" id="vT">—</div><div class="badge" id="bT"></div></div>
+    <div class="card tile" id="cardH"><h2 data-ref="S2">Humedad</h2><div class="value" id="vH">—</div><div class="badge" id="bH"></div></div>
+    <div class="card tile" id="cardCO"><h2 data-ref="S3">CO (MQ-7)</h2><div class="value" id="vCO">—</div><div class="badge" id="bCO"></div></div>
+    <div class="card tile" id="cardMQ"><h2 data-ref="S4" title="Ocupación estimada con el MQ-135">Ocupación</h2><div class="value" id="vMQ">—</div><div class="badge" id="bMQ"></div></div>
+    <div class="card c-act" id="cardAct">
+      <!-- Bloqueo por histeresis: cadenas detras del texto y candado con la cuenta regresiva -->
+      <div class="cadenas" aria-hidden="true"><i class="cadena a"></i><i class="cadena b"></i></div>
+      <div class="act-head">
+        <h2 data-ref="K1">Actuadores</h2>
+        <div class="candado" id="candado" role="status">
+          <svg viewBox="0 0 14 16" aria-hidden="true">
+            <path class="grillete" d="M3.5 7.5V5a3.5 3.5 0 0 1 7 0v2.5" fill="none" stroke="currentColor" stroke-width="2"/>
+            <rect x="1" y="7" width="12" height="9" rx="2" fill="currentColor"/>
+            <circle cx="7" cy="11" r="1.4" fill="var(--surface-1)"/>
+          </svg>
+          <span id="candadoTxt">—</span>
+        </div>
+      </div>
+      <dl class="act">
+        <dt>Ventilador</dt>
+        <dd><span class="led lampara" id="actFanLed" title="Ventilador encendido"></span><span class="onoff" id="actFan">—</span><span class="meter"><i id="actFanBar"></i></span><span class="num" id="actFanPct">—</span></dd>
+        <dt>Calefactor</dt>
+        <dd><span class="led lampara" id="actHeatLed" title="Calefactor encendido"></span><span class="onoff" id="actHeat">—</span><span class="meter"><i id="actHeatBar"></i></span><span class="num" id="actHeatPct">—</span></dd>
+        <dt>Buzzer</dt><dd><span class="onoff" id="actBuzz">—</span></dd>
+        <dt>LED RGB</dt><dd><span class="led lampara" id="actLedDot"></span><span class="ellipsis" id="actLed">—</span></dd>
+      </dl>
+    </div>
+  </section>
+
+  <div class="sec-head" role="group" aria-label="Ventana de tiempo">
+    <h2>Histórico</h2>
+    <button data-win="60" aria-pressed="false">1 min</button>
+    <button data-win="300" aria-pressed="true">5 min</button>
+    <button data-win="900" aria-pressed="false">15 min</button>
+    <button data-win="0" aria-pressed="false">Todo</button>
+    <span class="sp"></span>
+    <span class="muted num" style="font-size:11px" id="contador">0 lecturas</span>
+  </div>
+
+  <section class="grid g-charts">
+    <div class="card"><h2 id="tituloT" data-ref="G1">Temperatura (°C) <span class="muted" id="umbralesT"></span></h2><div class="chart-box"><canvas id="cT" aria-label="Temperatura en el tiempo" role="img"></canvas></div></div>
+    <div class="card"><h2 data-ref="G2">Humedad relativa (%)</h2><div class="chart-box"><canvas id="cH" aria-label="Humedad en el tiempo" role="img"></canvas></div></div>
+    <div class="card"><h2 data-ref="G3">CO (ppm)</h2><div class="chart-box"><canvas id="cCO" aria-label="CO en el tiempo" role="img"></canvas></div></div>
+    <div class="card"><h2 data-ref="G4">MQ-135 (ADC 0–4095)</h2><div class="chart-box"><canvas id="cMQ" aria-label="MQ-135 en el tiempo" role="img"></canvas></div></div>
+  </section>
+
+  <section class="card strip-card" style="margin-bottom:8px">
+    <div class="strip" id="strip" aria-label="Estado del control en el tiempo"></div>
+    <div class="strip-row num"><span id="stripIni">—</span><div class="legend" id="leyenda"></div><span id="stripFin">—</span></div>
+  </section>
+
+  <section class="grid g-bottom">
+    <div class="card">
+      <h2 data-ref="J1">Eventos</h2>
+      <ul class="events" id="eventos"><li class="empty" style="display:block">Aún no hay eventos.</li></ul>
+    </div>
+    <div class="card c-registro">
+      <div class="sec-head" style="margin-top:0">
+        <h2 data-ref="J2">Registro de ciclos</h2>
+        <span class="sp"></span>
+        <button id="btnAmpliar" title="Ver el registro completo en grande">⤢ Ampliar</button>
+        <button id="btnCsv">Exportar CSV</button>
+        <button id="btnLimpiar">Limpiar</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Hora</th><th class="n">Ciclo</th><th class="n">T °C</th><th class="n">HR %</th>
+            <th class="n">MQ-135</th><th class="n">CO ppm</th><th>Estado</th><th class="n">Vent.</th><th>Calef.</th><th class="col-motivo">Motivo</th>
+          </tr></thead>
+          <tbody id="tabla"><tr><td colspan="10" class="empty">Esperando telemetría… ¿está corriendo la simulación?</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card c-mascota" id="cardMascota">
+      <h2 data-ref="M1">Calienfriito</h2>
+      <div class="mascota-cuerpo">
+        <div class="globo" id="frase" aria-live="polite">Esperando datos del nodo…</div>
+      <svg class="mascota" id="mascota" data-mood="espera" viewBox="0 0 72 72" role="img" aria-label="Esperando datos del nodo">
+        <title>Esperando datos del nodo</title>
+        <circle class="m-anillo" cx="36" cy="38" r="27" fill="none" stroke="var(--critical)" stroke-width="2"/>
+        <g class="m-todo">
+          <path class="m-rulo" d="M36 15c-1.5-5.5 2-10 8-10.5-1 5-3.5 8.5-8 10.5z"/>
+          <path class="m-piel" d="M36 14c13.5 0 24 10.5 24 24.5C60 52 49.5 61 36 61S12 52 12 38.5C12 24.5 22.5 14 36 14z"/>
+          <ellipse class="m-brillo" cx="28" cy="24" rx="7" ry="3.2" transform="rotate(-18 28 24)"/>
+          <path class="m-bufanda" d="M15 47.5q21 9 42 0l1.2 5.8q-22 9.5-44.4 0z" fill="#eb6834"/>
+          <path class="m-bufanda" d="M45 52l3.5 9.5 4.4-1.4-3-9.4z" fill="#d95926"/>
+          <circle class="m-mejilla" cx="21.5" cy="43" r="3.4"/>
+          <circle class="m-mejilla" cx="50.5" cy="43" r="3.4"/>
+          <g class="m-ojos-normal">
+            <ellipse class="m-tinta" cx="27" cy="36" rx="2.9" ry="3.6"/><ellipse class="m-tinta" cx="45" cy="36" rx="2.9" ry="3.6"/>
+            <circle cx="28" cy="34.6" r="1" fill="#fff"/><circle cx="46" cy="34.6" r="1" fill="#fff"/>
+          </g>
+          <g class="m-ojos-felices"><path class="m-trazo" d="M23.5 37.5q3.5-4.5 7 0M41.5 37.5q3.5-4.5 7 0"/></g>
+          <g class="m-ojos-cerrados"><path class="m-trazo" d="M23.5 36q3.5 3.5 7 0M41.5 36q3.5 3.5 7 0"/></g>
+          <g class="m-ojos-alarma">
+            <circle cx="27" cy="35.5" r="4.6" fill="#fff" stroke="#1d1d1b" stroke-width="1.6"/><circle class="m-tinta" cx="27" cy="35.5" r="1.8"/>
+            <circle cx="45" cy="35.5" r="4.6" fill="#fff" stroke="#1d1d1b" stroke-width="1.6"/><circle class="m-tinta" cx="45" cy="35.5" r="1.8"/>
+          </g>
+          <path class="m-boca-feliz m-trazo" d="M31 45q5 5 10 0"/>
+          <path class="m-boca-plana m-trazo" d="M32 46.5h8"/>
+          <path class="m-boca-frio m-trazo" d="M29.5 47l2.2-2 2.2 2 2.1-2 2.1 2 2.2-2 2.2 2" stroke-width="1.8"/>
+          <circle class="m-boca-dormido m-tinta" cx="36" cy="47" r="1.9"/>
+          <g class="m-boca-calor"><ellipse class="m-tinta" cx="36" cy="47" rx="4.2" ry="3.6"/><ellipse cx="36" cy="49.2" rx="2.4" ry="1.4" fill="#ff6f86"/></g>
+          <ellipse class="m-boca-alarma m-tinta" cx="36" cy="48" rx="3.4" ry="4.4"/>
+        </g>
+        <path class="m-gota" d="M56 21c2.2 3.2 3.3 5.3 3.3 6.8a3.3 3.3 0 0 1-6.6 0c0-1.5 1.1-3.6 3.3-6.8z" fill="#6da7ec"/>
+        <g class="m-copos" stroke="#9ec5f4" stroke-width="1.6" stroke-linecap="round">
+          <path d="M10 14v8M6 18h8M7.2 15.2l5.6 5.6M12.8 15.2l-5.6 5.6"/>
+          <path d="M62 8v6M59 11h6M59.9 8.9l4.2 4.2M64.1 8.9l-4.2 4.2"/>
+        </g>
+        <g class="m-zzz" fill="var(--text-muted)" font-family="system-ui, sans-serif" font-weight="700">
+          <text x="52" y="20" font-size="8">z</text><text x="58" y="12" font-size="11">Z</text>
+        </g>
+        <g class="m-alerta"><circle cx="58" cy="13" r="7" fill="var(--critical)"/><text x="58" y="17.5" font-size="12" font-weight="800" fill="#fff" text-anchor="middle" font-family="system-ui, sans-serif">!</text></g>
+        <text class="m-duda" x="56" y="18" font-size="15" font-weight="700" fill="var(--text-muted)" font-family="system-ui, sans-serif">?</text>
+      </svg>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Registro completo: mas espacio, motivo entero y columnas extra. Se actualiza en vivo. -->
+<dialog class="modal card" id="modalRegistro" aria-labelledby="modalTitulo">
+  <div class="modal-head">
+    <h2 data-ref="J2" id="modalTitulo">Registro de ciclos completo</h2>
+    <span class="muted num" style="font-size:11px" id="modalContador"></span>
+    <span class="sp"></span>
+    <button type="button" id="btnCsvModal">Exportar CSV</button>
+    <button type="button" id="btnCerrarModal" aria-label="Cerrar">✕ Cerrar</button>
+  </div>
+  <div class="modal-tabla">
+    <table>
+      <thead><tr>
+        <th>Hora</th><th class="n">Ciclo</th><th class="n">T °C</th><th class="n">HR %</th><th class="n">MQ-135</th>
+        <th class="n">CO ppm</th><th>Estado</th><th class="n">Vent.</th><th>Calef.</th><th>Buzzer</th><th>LED RGB</th>
+        <th>Bloqueo</th><th>Motivo</th>
+      </tr></thead>
+      <tbody id="tablaCompleta"></tbody>
+    </table>
+  </div>
+</dialog>
+
+<script>
+// ---------------------------------------------------------------------------
+// Configuracion
+// ---------------------------------------------------------------------------
+const DEFAULTS = {
+  // Mosquitto del docker-compose (WebSocket 9001) en la misma maquina que sirve esta pagina;
+  // el ESP32 publica en el mismo broker por TCP 1883 (host.wokwi.internal en Wokwi).
+  broker: `ws://${location.hostname || "localhost"}:9001`,
+  base: "ccs/A403",
+};
+// Umbrales de respaldo; se reemplazan por los que publica el firmware en <base>/config.
+let cfg = {
+  setpoint_c: 24.0, t_ventilador_on_c: 24.5, t_calefactor_on_c: 23.5, t_apagado_c: 24.0,
+  min_on_s: 60, hr_alta_pct: 60, hr_baja_pct: 40, co_alarm_ppm: 50, ocupacion_adc: 2200, periodo_s: 1,
+};
+const MAX_MUESTRAS = 3600;   // ~1 h a 1 lectura por segundo
+const MAX_FILAS = 300;       // filas visibles en la tabla
+const MAX_EVENTOS = 200;
+
+const ESTADOS = {
+  COOLING:     { nombre: "COOLING",     desc: "Enfriando",        color: "--st-on" },
+  HEATING:     { nombre: "HEATING",     desc: "Calentando",       color: "--st-heating" },
+  STANDBY:     { nombre: "STANDBY",     desc: "En espera",        color: "--st-standby" },
+  PRE_COOLING: { nombre: "PRE_COOLING", desc: "Pre-enfriamiento", color: "--st-precooling" },
+  DISABLED:    { nombre: "DISABLED",    desc: "Desactivado (aula vacía)", color: "--st-disabled" },
+  ALARMA:      { nombre: "ALARMA CO",   desc: "Control de clima suspendido", color: "--critical" },
+};
+
+// ?broker=...&base=... en la URL tiene prioridad sobre lo guardado (util para pruebas).
+const PARAMS = new URLSearchParams(location.search);
+function leerAjustes() {
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem("calienfriito-dash") || "{}"); } catch {}
+  return {
+    broker: PARAMS.get("broker") || s.broker || DEFAULTS.broker,
+    base: PARAMS.get("base") || s.base || DEFAULTS.base,
+  };
+}
+function guardarAjustes(a) {
+  try { localStorage.setItem("calienfriito-dash", JSON.stringify(a)); } catch {}
+}
+
+// ---------------------------------------------------------------------------
+// Estado de la pagina
+// ---------------------------------------------------------------------------
+const muestras = [];   // { t: Date, d: telemetria }
+const eventos = [];
+let ventana = 300;     // segundos visibles en las graficas (0 = todo)
+let ultimaRx = null;
+let nodoStatus = null; // "online" | "offline" | null
+let avisoSinDatos = false;
+
+const $ = (id) => document.getElementById(id);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const hora = (t) => t.toLocaleTimeString("es-PE", { hour12: false });
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = (v, dec = 1) => (v === null || v === undefined || Number.isNaN(v)) ? "—" : Number(v).toFixed(dec);
+
+// El firmware anterior enviaba "ON" para enfriar; se trata igual que COOLING.
+const ALIAS_ESTADO = { ON: "COOLING" };
+const accionDe = (d) => ALIAS_ESTADO[d.accion] || d.accion;
+function claveEstado(d) { const a = accionDe(d); return d.alarma_co ? "ALARMA" : (ESTADOS[a] ? a : "STANDBY"); }
+
+// ---------------------------------------------------------------------------
+// Clasificaciones (mismos criterios que el bloque CICLO del firmware)
+// ---------------------------------------------------------------------------
+function clasT(t) {
+  if (t === null) return { txt: "Sin lectura del DHT22", cls: "critical", ico: "⚠" };
+  if (t >= cfg.t_ventilador_on_c) return { txt: `CÁLIDO (≥ ${cfg.t_ventilador_on_c} °C)` };
+  if (t <= cfg.t_calefactor_on_c) return { txt: `FRESCO (≤ ${cfg.t_calefactor_on_c} °C)` };
+  return { txt: `TEMPLADO (${cfg.t_calefactor_on_c}–${cfg.t_ventilador_on_c} °C)` };
+}
+function clasH(h) {
+  if (h === null) return { txt: "Sin lectura" };
+  if (h >= cfg.hr_alta_pct) return { txt: `HÚMEDO (≥ ${cfg.hr_alta_pct} %)` };
+  if (h <= cfg.hr_baja_pct) return { txt: `SECO (≤ ${cfg.hr_baja_pct} %)` };
+  return { txt: `MODERADO (${cfg.hr_baja_pct}–${cfg.hr_alta_pct} %)` };
+}
+function clasCO(co) {
+  return co >= cfg.co_alarm_ppm
+    ? { txt: `ALARMA (≥ ${cfg.co_alarm_ppm} ppm)`, cls: "critical", ico: "⚠" }
+    : { txt: `Normal (< ${cfg.co_alarm_ppm} ppm)` };
+}
+function clasMQ(adc) {
+  return adc >= cfg.ocupacion_adc ? { txt: `AULA OCUPADA (≥ ${cfg.ocupacion_adc})` } : { txt: `AULA VACÍA (< ${cfg.ocupacion_adc})` };
+}
+function pintarBadge(el, c) {
+  el.className = "badge" + (c.cls ? " " + c.cls : "");
+  el.innerHTML = (c.ico ? `<span class="ico">${c.ico}</span>` : "") + `<span>${esc(c.txt)}</span>`;
+}
+
+// ---------------------------------------------------------------------------
+// Graficas: una por magnitud (escalas distintas -> nunca doble eje)
+// ---------------------------------------------------------------------------
+// Lineas de referencia horizontales (umbrales) con su etiqueta al borde derecho.
+// Se dibujan antes que la serie: los datos siempre quedan por encima.
+const pluginUmbrales = {
+  id: "umbrales",
+  beforeDatasetsDraw(chart, _args, opts) {
+    const lineas = (opts && opts.lineas ? opts.lineas() : []);
+    const { ctx, chartArea: a, scales: { y } } = chart;
+    ctx.save();
+    ctx.font = `${Number(css("--chart-font-size")) || 10}px ${css("--chart-font")}`;
+    ctx.textAlign = "right";
+    for (const l of lineas) {
+      const py = y.getPixelForValue(l.y);
+      if (py < a.top || py > a.bottom) continue;
+      ctx.strokeStyle = l.critico ? css("--critical") : css("--chart-axis");
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
+      if (!l.label) continue; // umbrales muy juntos: su valor va en el titulo de la grafica
+      // Fondo del color de la superficie para que la etiqueta no se pierda sobre la serie.
+      const w = ctx.measureText(l.label).width;
+      ctx.fillStyle = css("--chart-bg");
+      ctx.fillRect(a.right - w - 6, py - 13, w + 6, 12);
+      ctx.fillStyle = css("--chart-ink");
+      ctx.fillText(l.label, a.right - 3, py - 4);
+    }
+    ctx.restore();
+  },
+};
+Chart.register(pluginUmbrales);
+Chart.defaults.font.size = 10;
+Chart.defaults.font.family = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+function crearGrafica(id, unidad, dec, lineas) {
+  return new Chart($(id), {
+    type: "line",
+    data: { labels: [], datasets: [{ data: [], borderWidth: 2, pointRadius: 0, pointHoverRadius: 4,
+      pointHoverBorderWidth: 2, tension: 0, spanGaps: false, borderJoinStyle: "round", borderCapStyle: "round" }] },
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: { ticks: { maxTicksLimit: 4, maxRotation: 0, autoSkip: true }, grid: { display: false }, border: {} },
+        y: { ticks: { maxTicksLimit: 4 }, grid: {}, border: { display: false } },
+      },
+      plugins: {
+        legend: { display: false },
+        umbrales: { lineas },
+        tooltip: {
+          displayColors: false,
+          callbacks: {
+            label: (c) => c.raw === null ? "sin lectura" : `${Number(c.raw).toFixed(dec)} ${unidad}`,
+            afterLabel: (c) => { const m = c.chart.$muestras?.[c.dataIndex]; return m ? `Estado: ${ESTADOS[claveEstado(m.d)].nombre}` : ""; },
+          },
+        },
+      },
+    },
+    plugins: [{ id: "crosshair", afterDatasetsDraw(chart) {
+      const act = chart.tooltip?.getActiveElements?.() || [];
+      if (!act.length) return;
+      const { ctx, chartArea: a } = chart; const x = act[0].element.x;
+      ctx.save(); ctx.strokeStyle = css("--chart-axis"); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, a.top); ctx.lineTo(x, a.bottom); ctx.stroke(); ctx.restore();
+    } }],
+  });
+}
+
+const graficas = [];
+function nuevaGrafica(id, campo, unidad, dec, lineas, rango) {
+  const ch = crearGrafica(id, unidad, dec, lineas);
+  graficas.push({ ch, campo, rango });
+}
+nuevaGrafica("cT", "temp_c", "°C", 1, () => [
+  // Separados solo 0.5 C: con 130 px de alto las etiquetas se pisarian.
+  { y: cfg.t_ventilador_on_c }, { y: cfg.t_apagado_c }, { y: cfg.t_calefactor_on_c },
+], () => [cfg.t_calefactor_on_c - 1, cfg.t_ventilador_on_c + 1]);
+nuevaGrafica("cH", "humedad", "%", 0, () => [
+  { y: cfg.hr_alta_pct, label: `Húmedo ${cfg.hr_alta_pct}` },
+  { y: cfg.hr_baja_pct, label: `Seco ${cfg.hr_baja_pct}` },
+], () => [cfg.hr_baja_pct - 10, cfg.hr_alta_pct + 10]);
+nuevaGrafica("cCO", "co_ppm", "ppm", 0, () => [
+  { y: cfg.co_alarm_ppm, label: `Alarma ${cfg.co_alarm_ppm} ppm`, critico: true },
+], () => [0, cfg.co_alarm_ppm * 1.4]);
+nuevaGrafica("cMQ", "co2_proxy", "ADC", 0, () => [
+  { y: cfg.ocupacion_adc, label: `Ocupada ≥ ${cfg.ocupacion_adc}` },
+], () => [0, 4095, true]); // rango fijo: es el rango completo del ADC de 12 bits
+
+function aplicarTemaGraficas() {
+  for (const { ch } of graficas) {
+    const ds = ch.data.datasets[0];
+    ds.borderColor = css("--chart-line");
+    ds.pointHoverBackgroundColor = css("--chart-line");
+    ds.pointHoverBorderColor = css("--chart-bg");
+    const o = ch.options;
+    o.scales.x.ticks.color = o.scales.y.ticks.color = css("--chart-ink");
+    o.scales.y.grid.color = css("--chart-grid");
+    o.scales.x.border.color = css("--chart-axis");
+    // Tipografia de la grafica segun el estilo (serigrafia en PCB, instrumento en Panel)
+    const fuente = { family: css("--chart-font"), size: Number(css("--chart-font-size")) || 10 };
+    o.scales.x.ticks.font = o.scales.y.ticks.font = fuente;
+    o.plugins.tooltip.titleFont = { ...fuente, weight: "normal" };
+    o.plugins.tooltip.bodyFont = { ...fuente, size: 11 };
+    Object.assign(o.plugins.tooltip, {
+      backgroundColor: css("--chart-bg"), borderColor: css("--chart-axis"), borderWidth: 1,
+      titleColor: css("--chart-tip-sub"), bodyColor: css("--chart-tip-ink"), padding: 6,
+    });
+    ch.update("none");
+  }
+}
+
+function actualizarGraficas() {
+  // La ventana es de tiempo, no de cantidad: no depende del periodo del firmware.
+  const desde = ventana && muestras.length ? muestras[muestras.length - 1].t - ventana * 1000 : -Infinity;
+  const vis = muestras.filter((m) => m.t >= desde);
+  const labels = vis.map((m) => hora(m.t));
+  $("umbralesT").textContent = `· ${cfg.t_calefactor_on_c} / ${cfg.t_apagado_c} / ${cfg.t_ventilador_on_c}`;
+  $("tituloT").title = `Lineas: calefactor ON <= ${cfg.t_calefactor_on_c} C · setpoint ${cfg.t_apagado_c} C · ventilador ON >= ${cfg.t_ventilador_on_c} C`;
+  for (const { ch, campo, rango } of graficas) {
+    ch.$muestras = vis;
+    ch.data.labels = labels;
+    ch.data.datasets[0].data = vis.map((m) => m.d[campo] ?? null);
+    ch.options.scales.x.ticks.maxTicksLimit = ch.width < 260 ? 3 : 4; // las horas no deben pisarse
+    const [min, max, fijo] = rango();
+    const y = ch.options.scales.y;
+    if (fijo) { y.min = min; y.max = max; }
+    else { y.suggestedMin = min; y.suggestedMax = max; }
+    ch.update("none");
+  }
+  // Franja de estados: un segmento por tramo de lecturas seguidas en el mismo estado.
+  const tramos = [];
+  for (const m of vis) {
+    const k = claveEstado(m.d), ult = tramos[tramos.length - 1];
+    if (ult && ult.k === k) { ult.n++; ult.fin = m.t; } else tramos.push({ k, n: 1, ini: m.t, fin: m.t });
+  }
+  $("strip").innerHTML = tramos.map((r) => {
+    const e = ESTADOS[r.k];
+    return `<i style="flex:${r.n};background:var(${e.color})" title="${hora(r.ini)}–${hora(r.fin)} · ${esc(e.nombre)} — ${esc(e.desc)}"></i>`;
+  }).join("");
+  $("stripIni").textContent = vis.length ? hora(vis[0].t) : "—";
+  $("stripFin").textContent = vis.length ? hora(vis[vis.length - 1].t) : "—";
+}
+
+$("leyenda").innerHTML = Object.values(ESTADOS)
+  .map((e) => `<span title="${esc(e.desc)}"><i class="sw" style="background:var(${e.color})"></i>${esc(e.nombre)}</span>`).join("");
+
+// ---------------------------------------------------------------------------
+// Paneles
+// ---------------------------------------------------------------------------
+function pintarActual(d) {
+  const k = claveEstado(d), e = ESTADOS[k];
+  $("estadoChip").style.background = `var(${e.color})`;
+  $("estadoNombre").textContent = e.nombre;
+  $("estadoDesc").textContent = d.alarma_co ? e.desc : (ESTADOS[accionDe(d)]?.desc || d.accion);
+  $("motivo").textContent = d.motivo || "(el firmware no envía el motivo; recompila src/sketch.ino)";
+  $("motivo").title = $("motivo").textContent;
+  pintarMascota(animoDe(d));
+  // Alertas sostenidas mientras dure la condicion
+  $("cardEstado").classList.toggle("alerta", !!d.alarma_co);
+  $("cardCO").classList.toggle("alerta", !!d.alarma_co);
+  $("cardT").classList.toggle("alerta", d.temp_c === null);
+
+  const pct = Math.round((d.ventilador_pwm || 0) * 100 / 255);
+  $("actFan").textContent = pct > 0 ? "ON" : "OFF";
+  $("actFanLed").classList.toggle("on", pct > 0);
+  $("actFanBar").style.width = pct + "%";
+  $("actFanPct").textContent = `${pct} %`;
+  $("actHeat").textContent = d.calefactor ? "ON" : "OFF";
+  // El calefactor PTC es todo o nada (salida digital): su barra marca 0 % o 100 %.
+  const pctCal = d.calefactor ? 100 : 0;
+  $("actHeatBar").style.width = pctCal + "%";
+  $("actHeatPct").textContent = `${pctCal} %`;
+  $("actHeatLed").classList.toggle("on", !!d.calefactor);
+  $("actBuzz").textContent = d.buzzer ? "ON" : "OFF";
+  const led = d.led || "—";
+  $("actLed").textContent = led;
+  $("actLed").title = led;
+  const colores = { ROJO: "#e34948", AZUL: "#2a78d6", VERDE: "#0ca30c", MAGENTA: "#d55181", AMBAR: "#eda100", CIAN: "#19c3d6" };
+  const c = Object.keys(colores).find((n) => led.toUpperCase().startsWith(n));
+  // Misma lampara que los actuadores: apagada igual que ellas; encendida, con el color del estado.
+  $("actLedDot").style.setProperty("--lamp", c ? colores[c] : "#ffffff");
+  $("actLedDot").classList.toggle("on", !!c);
+
+  $("vT").innerHTML = d.temp_c === null ? "—" : `${fmt(d.temp_c)} <small>°C</small>`;
+  $("vH").innerHTML = d.humedad === null ? "—" : `${fmt(d.humedad, 0)} <small>%</small>`;
+  $("vCO").innerHTML = `${d.co_ppm} <small>ppm</small>`;
+  $("vMQ").innerHTML = `${d.co2_proxy} <small>ADC</small>`;
+  pintarBadge($("bT"), clasT(d.temp_c));
+  pintarBadge($("bH"), clasH(d.humedad));
+  pintarBadge($("bCO"), clasCO(d.co_ppm));
+  pintarBadge($("bMQ"), clasMQ(d.co2_proxy));
+}
+
+// ---------------------------------------------------------------------------
+// Mascota y resaltes
+// ---------------------------------------------------------------------------
+const MASCOTA = {
+  espera:   { color: "--text-muted",  frase: "Esperando datos del nodo…" },
+  templado: { color: "--st-standby",  frase: "¡Qué rico! Temperatura agradable" },
+  calor:    { color: "--st-heating",  frase: "¡Uf, qué calor en el aula!" },
+  frio:     { color: "--st-on",       frase: "Brrr… hace frío por aquí" },
+  vacia:    { color: "--m-gris",      frase: "Aula vacía… a dormir un rato" },
+  alarma:   { color: "--critical",    frase: "¡Peligro! CO alto, hay que ventilar" },
+};
+// El animo sigue a lo que "siente" el aula: alarma y aula vacia mandan; si no, la temperatura.
+function animoDe(d) {
+  if (!d) return "espera";
+  if (d.alarma_co) return "alarma";
+  if (d.accion === "DISABLED") return "vacia";
+  if (d.temp_c === null) return "espera";
+  if (d.temp_c >= cfg.t_ventilador_on_c) return "calor";
+  if (d.temp_c <= cfg.t_calefactor_on_c) return "frio";
+  return "templado";
+}
+function pintarMascota(animo) {
+  const svg = $("mascota");
+  if (svg.dataset.mood === animo) return;
+  const m = MASCOTA[animo];
+  svg.dataset.mood = animo;
+  svg.style.setProperty("--m-color", `var(${m.color})`);
+  svg.setAttribute("aria-label", m.frase);
+  svg.querySelector("title").textContent = m.frase;
+  $("frase").textContent = m.frase;
+  reanimar(svg, "salto");
+}
+// Reinicia una animacion CSS de una sola vez aunque la clase ya estuviera puesta.
+function reanimar(el, clase) {
+  el.classList.remove(clase);
+  void el.getBoundingClientRect();
+  el.classList.add(clase);
+}
+function resaltar(id, colorVar = "--series-1") {
+  const el = $(id);
+  el.style.setProperty("--hl", `var(${colorVar})`);
+  reanimar(el, "resalte");
+}
+// Compara la lectura nueva con la anterior y resalta solo lo que cambio de verdad
+// (estado, clasificacion o actuador), no cada variacion numerica.
+// Cadenas y candado mientras la histeresis retiene un cambio de estado. Con alarma de CO
+// no se muestran: la alarma ignora la histeresis y fuerza el ventilador al 100 %.
+function pintarBloqueo(d) {
+  const card = $("cardAct");
+  const bloqueado = !d.alarma_co && (d.bloqueo_s || 0) > 0;
+  if (bloqueado) {
+    const destino = ALIAS_ESTADO[d.pendiente] || d.pendiente || "?";
+    card.classList.remove("liberando");
+    card.classList.add("bloqueado");
+    $("candadoTxt").textContent = `→ ${destino} ${d.bloqueo_s} s`;
+    $("candado").title = `Histéresis: el cambio a ${destino} se aplicará en ${d.bloqueo_s} s (intervalo mínimo de ${cfg.min_on_s} s)`;
+  } else if (card.classList.contains("bloqueado")) {
+    card.classList.remove("bloqueado");
+    if (!d.alarma_co) {
+      reanimar(card, "liberando");
+      setTimeout(() => card.classList.remove("liberando"), 750);
+    }
+  }
+}
+
+function resaltarCambios(prev, d) {
+  const kPrev = claveEstado(prev), k = claveEstado(d);
+  if (k !== kPrev) resaltar("cardEstado", ESTADOS[k].color);
+  if (clasT(prev.temp_c).txt !== clasT(d.temp_c).txt) { resaltar("cardT"); reanimar($("vT"), "pop"); }
+  if (clasH(prev.humedad).txt !== clasH(d.humedad).txt) { resaltar("cardH"); reanimar($("vH"), "pop"); }
+  if (clasCO(prev.co_ppm).txt !== clasCO(d.co_ppm).txt) { resaltar("cardCO", d.alarma_co ? "--critical" : "--good"); reanimar($("vCO"), "pop"); }
+  if (clasMQ(prev.co2_proxy).txt !== clasMQ(d.co2_proxy).txt) { resaltar("cardMQ"); reanimar($("vMQ"), "pop"); }
+  const act = [
+    [prev.ventilador_pwm !== d.ventilador_pwm, "actFan"],
+    [prev.calefactor !== d.calefactor, "actHeat"],
+    [prev.buzzer !== d.buzzer, "actBuzz"],
+  ].filter(([cambio]) => cambio);
+  if (act.length || prev.led !== d.led) {
+    resaltar("cardAct", ESTADOS[k].color);
+    act.forEach(([, id]) => reanimar($(id), "pop"));
+  }
+}
+
+// completo = fila del modal: agrega buzzer, LED y bloqueo, y el motivo va entero.
+function filaTabla(m, completo = false) {
+  const d = m.d, e = ESTADOS[claveEstado(d)];
+  const pct = Math.round((d.ventilador_pwm || 0) * 100 / 255);
+  const bloqueo = d.bloqueo_s > 0 ? `→ ${ALIAS_ESTADO[d.pendiente] || d.pendiente} ${d.bloqueo_s} s` : "—";
+  const extra = completo
+    ? `<td>${d.buzzer ? "ON" : "OFF"}</td><td>${esc(d.led || "—")}</td><td>${esc(bloqueo)}</td>` : "";
+  return `<tr class="${d.alarma_co ? "alarm" : ""}">
+    <td class="num">${hora(m.t)}</td><td class="n">${d.ciclo ?? "—"}</td>
+    <td class="n">${fmt(d.temp_c)}</td><td class="n">${fmt(d.humedad, 0)}</td>
+    <td class="n">${d.co2_proxy}</td><td class="n">${d.co_ppm}</td>
+    <td><span class="st"><i class="sw" style="background:var(${e.color})"></i>${esc(e.nombre)}</span></td>
+    <td class="n">${pct} %</td><td>${d.calefactor ? "ON" : "OFF"}</td>${extra}
+    <td class="motivo-cell col-motivo" title="${esc(d.motivo || "")}">${esc(d.motivo || "")}</td></tr>`;
+}
+const MAX_FILAS_MODAL = 600; // ~10 min a 1 lectura/s; el CSV exporta todo
+function pintarTabla() {
+  const filas = muestras.slice(-MAX_FILAS).reverse();
+  $("tabla").innerHTML = filas.length ? filas.map((m) => filaTabla(m)).join("")
+    : `<tr><td colspan="10" class="empty">Esperando telemetría… ¿está corriendo la simulación?</td></tr>`;
+  $("contador").textContent = `${muestras.length} lecturas`;
+  if ($("modalRegistro").open) pintarTablaCompleta();
+}
+function pintarTablaCompleta() {
+  const filas = muestras.slice(-MAX_FILAS_MODAL).reverse();
+  $("tablaCompleta").innerHTML = filas.length ? filas.map((m) => filaTabla(m, true)).join("")
+    : `<tr><td colspan="13" class="empty">Esperando telemetría… ¿está corriendo la simulación?</td></tr>`;
+  $("modalContador").textContent = muestras.length > MAX_FILAS_MODAL
+    ? `últimas ${MAX_FILAS_MODAL} de ${muestras.length} lecturas (el CSV incluye todas)`
+    : `${muestras.length} lecturas`;
+}
+
+function evento(tipo, titulo, detalle = "") {
+  const ico = { critical: "⚠", good: "✓", info: "•" }[tipo] || "•";
+  eventos.unshift({ t: new Date(), tipo, ico, titulo, detalle });
+  if (eventos.length > MAX_EVENTOS) eventos.pop();
+  $("eventos").innerHTML = eventos.map((e) => `<li class="${e.tipo}">
+    <time class="num">${hora(e.t)}</time><span class="ico">${e.ico}</span>
+    <span>${esc(e.titulo)}${e.detalle ? `<span class="det">${esc(e.detalle)}</span>` : ""}</span></li>`).join("");
+  $("eventos").firstElementChild?.classList.add("nuevo");
+}
+
+function pill(id, estado, texto) {
+  const el = $(id);
+  el.querySelector(".dot").className = "dot" + (estado ? " " + estado : "");
+  el.querySelector("span:last-child").textContent = texto;
+}
+// ---------------------------------------------------------------------------
+// Ritmo real de la telemetria. Wokwi no corre a tiempo real (suele ir al 20-50 %),
+// asi que los datos llegan mas espaciados que el periodo del firmware.
+// ---------------------------------------------------------------------------
+const UMBRAL_MIN_MS = 10000;   // nunca avisar "sin telemetria" antes de 10 s de silencio
+// Lecturas recientes de la misma sesion del nodo (se corta si el nodo se reinicio).
+function sesionReciente(n) {
+  const out = [];
+  for (let i = muestras.length - 1; i >= 0 && out.length < n; i--) {
+    const m = muestras[i], sig = out[0];
+    if (sig && (m.d.uptime_s === undefined || m.d.uptime_s >= sig.d.uptime_s)) break;
+    out.unshift(m);
+  }
+  return out;
+}
+// Intervalo real tipico entre lecturas (mediana de las ultimas 20).
+function intervaloTipicoMs() {
+  const r = sesionReciente(21), dif = [];
+  for (let i = 1; i < r.length; i++) dif.push(r[i].t - r[i - 1].t);
+  if (!dif.length) return cfg.periodo_s * 1000;
+  dif.sort((a, b) => a - b);
+  return dif[Math.floor(dif.length / 2)];
+}
+// Umbral adaptativo: el triple del intervalo habitual, con un minimo de 10 s.
+function umbralSinDatosMs() { return Math.max(UMBRAL_MIN_MS, 3 * intervaloTipicoMs()); }
+// Velocidad de la simulacion = segundos del ESP32 / segundos reales. Se usa la mediana de los
+// ultimos 10 intervalos: una pausa aislada del simulador no arrastra la cifra.
+function velocidadSimulacion() {
+  const r = sesionReciente(11), v = [];
+  for (let i = 1; i < r.length; i++) {
+    const real = (r[i].t - r[i - 1].t) / 1000, sim = r[i].d.uptime_s - r[i - 1].d.uptime_s;
+    if (real > 0 && Number.isFinite(sim)) v.push(sim / real);
+  }
+  if (v.length < 3) return null;
+  v.sort((x, y) => x - y);
+  return v[Math.floor(v.length / 2)];
+}
+function pintarSimulacion() {
+  const v = velocidadSimulacion(), el = $("pillSim");
+  if (v === null) { el.hidden = true; return; }
+  el.hidden = false;
+  const pct = Math.round(v * 100);
+  el.textContent = pct >= 90 ? "Simulación: tiempo real" : `Simulación al ${pct} %`;
+  el.title = `El ESP32 avanza ${pct} % del tiempo real: 1 s del nodo tarda ~${(1 / Math.max(v, 0.01)).toFixed(1)} s reales. ` +
+    `Por eso las lecturas llegan cada ~${(intervaloTipicoMs() / 1000).toFixed(1)} s.`;
+}
+
+function pintarNodo() {
+  const sinDatos = !ultimaRx || (Date.now() - ultimaRx > umbralSinDatosMs());
+  if (nodoStatus === "offline") pill("pillNodo", "bad", "Nodo: offline (LWT)");
+  else if (ultimaRx && !sinDatos) pill("pillNodo", "ok", "Nodo: online");
+  else if (ultimaRx) pill("pillNodo", "bad", "Nodo: sin datos recientes");
+  else pill("pillNodo", "", nodoStatus === "online" ? "Nodo: online, esperando lectura" : "Nodo: sin datos");
+  if (ultimaRx && sinDatos && !avisoSinDatos) {
+    avisoSinDatos = true;
+    evento("critical", "Sin telemetría",
+      `No llega ninguna lectura desde ${hora(new Date(ultimaRx))}`);
+  }
+  $("pillUltimo").textContent = ultimaRx ? `Última lectura: hace ${Math.round((Date.now() - ultimaRx) / 1000)} s` : "Última lectura: —";
+}
+setInterval(pintarNodo, 1000);
+
+// ---------------------------------------------------------------------------
+// Mensajes MQTT
+// ---------------------------------------------------------------------------
+function onTelemetria(d) {
+  const prev = muestras.length ? muestras[muestras.length - 1].d : null;
+  const m = { t: new Date(), d };
+  if (!prev) evento("good", "Primera telemetría recibida", `Estado ${ESTADOS[claveEstado(d)].nombre}`);
+  else {
+    if (d.ciclo !== undefined && prev.ciclo !== undefined && d.ciclo < prev.ciclo)
+      evento("info", "El nodo se reinició", `El contador de ciclos volvió a ${d.ciclo}`);
+    if (d.alarma_co && !prev.alarma_co)
+      evento("critical", `Alarma de CO activada: ${d.co_ppm} ppm`, "Ventilador al 100 %, calefactor OFF, buzzer ON");
+    else if (!d.alarma_co && prev.alarma_co)
+      evento("good", `Alarma de CO desactivada: ${d.co_ppm} ppm`, "Se reanuda el control por heurística");
+    if (accionDe(d) !== accionDe(prev))
+      evento("info", `Transición ${accionDe(prev)} → ${accionDe(d)}`, d.motivo || "");
+    const bloq = (x) => !x.alarma_co && (x.bloqueo_s || 0) > 0;
+    if (bloq(d) && !bloq(prev))
+      evento("info", `Bloqueo por histéresis: ${accionDe(d)} → ${ALIAS_ESTADO[d.pendiente] || d.pendiente}`,
+        `El cambio se aplicará en ${d.bloqueo_s} s (intervalo mínimo de ${cfg.min_on_s} s)`);
+    else if (!bloq(d) && bloq(prev))
+      evento(d.alarma_co ? "critical" : "good", d.alarma_co ? "La alarma de CO anula el bloqueo" : "Bloqueo liberado",
+        d.alarma_co ? "La seguridad tiene prioridad sobre la histéresis" : `Estado actual: ${accionDe(d)}`);
+    if ((d.temp_c === null) !== (prev.temp_c === null))
+      evento(d.temp_c === null ? "critical" : "good", d.temp_c === null ? "DHT22 sin lectura" : "DHT22 vuelve a leer");
+  }
+  if (avisoSinDatos) { avisoSinDatos = false; evento("good", "Telemetría restablecida"); }
+  muestras.push(m);
+  if (muestras.length > MAX_MUESTRAS) muestras.shift();
+  ultimaRx = Date.now();
+  pintarActual(d);
+  pintarBloqueo(d);
+  pintarSimulacion();
+  if (prev) resaltarCambios(prev, d);
+  actualizarGraficas();
+  pintarTabla();
+  pintarNodo();
+}
+
+let cliente = null;
+// Reconexion cada 5 s fijos. Clic en el indicador del broker = reintentar ya.
+const ESPERA_MIN_MS = 5000, ESPERA_MAX_MS = 5000;
+let esperaMs = ESPERA_MIN_MS, timerReconexion = null, ultimoError = "";
+function programarReconexion(c) {
+  if (c !== cliente || timerReconexion) return;
+  const ms = esperaMs;
+  pill("pillBroker", "bad", `Broker: reintento en ${Math.round(ms / 1000)} s (clic: ya)`);
+  timerReconexion = setTimeout(() => {
+    timerReconexion = null;
+    if (c !== cliente) return;
+    pill("pillBroker", "", "Broker: conectando…");
+    c.reconnect();
+  }, ms);
+  esperaMs = Math.min(ESPERA_MAX_MS, esperaMs * 2);
+}
+function conectar() {
+  const { broker, base } = leerAjustes();
+  $("inBroker").value = broker;
+  $("inBase").value = base;
+  if (cliente) { cliente.end(true); cliente = null; }
+  clearTimeout(timerReconexion); timerReconexion = null;
+  esperaMs = ESPERA_MIN_MS; ultimoError = "";
+  pill("pillBroker", "", "Broker: conectando…");
+  const c = mqtt.connect(broker, {
+    clientId: "calienfriito-dash-" + Math.random().toString(16).slice(2, 10),
+    reconnectPeriod: 0, // los reintentos los programa programarReconexion()
+    connectTimeout: 10000, clean: true,
+  });
+  cliente = c;
+  const host = (() => { try { return new URL(broker).hostname; } catch { return broker; } })();
+  c.on("connect", () => {
+    esperaMs = ESPERA_MIN_MS; ultimoError = "";
+    pill("pillBroker", "ok", `Broker: ${host}`);
+    evento("good", "Conectado al broker", `${host} · ${base}/#`);
+    c.subscribe([`${base}/telemetry`, `${base}/status`, `${base}/config`], { qos: 0 });
+  });
+  c.on("close", () => programarReconexion(c));
+  // Solo se registra cuando el error cambia: no un evento identico en cada reintento.
+  c.on("error", (err) => {
+    if (c !== cliente || err.message === ultimoError) return;
+    ultimoError = err.message;
+    evento("critical", "Error de conexión con el broker", `${err.message} · se reintentará cada 5 s`);
+  });
+  c.on("message", (topic, payload) => {
+    if (c !== cliente) return;
+    const txt = payload.toString();
+    if (topic === `${base}/status`) {
+      if (txt !== nodoStatus) evento(txt === "online" ? "good" : "critical", `Nodo ${txt}`, txt === "offline" ? "Publicado por el Last Will del broker" : "");
+      nodoStatus = txt; pintarNodo();
+    } else if (topic === `${base}/config`) {
+      try { cfg = { ...cfg, ...JSON.parse(txt) }; actualizarGraficas(); if (muestras.length) pintarActual(muestras[muestras.length - 1].d); } catch {}
+    } else if (topic === `${base}/telemetry`) {
+      try { onTelemetria(JSON.parse(txt)); }
+      catch (e) { evento("critical", "Telemetría ilegible", txt.slice(0, 120)); }
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Controles
+// ---------------------------------------------------------------------------
+// Clic en el indicador del broker: reintentar ahora sin esperar.
+$("pillBroker").style.cursor = "pointer";
+$("pillBroker").title = "Clic para reintentar la conexión ahora";
+$("pillBroker").addEventListener("click", () => {
+  if (!cliente || cliente.connected) return;
+  clearTimeout(timerReconexion); timerReconexion = null;
+  esperaMs = ESPERA_MIN_MS;
+  pill("pillBroker", "", "Broker: conectando…");
+  cliente.reconnect();
+});
+
+$("formConexion").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  guardarAjustes({ broker: $("inBroker").value.trim(), base: $("inBase").value.trim().replace(/\/+$/, "") });
+  nodoStatus = null;
+  conectar();
+});
+$("btnDefaults").addEventListener("click", () => { guardarAjustes(DEFAULTS); nodoStatus = null; conectar(); });
+
+document.querySelectorAll("[data-win]").forEach((b) => b.addEventListener("click", () => {
+  ventana = Number(b.dataset.win);
+  document.querySelectorAll("[data-win]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  actualizarGraficas();
+}));
+
+$("btnLimpiar").addEventListener("click", () => {
+  muestras.length = 0;
+  actualizarGraficas(); pintarTabla();
+});
+
+$("btnAmpliar").addEventListener("click", () => { pintarTablaCompleta(); $("modalRegistro").showModal(); });
+$("btnCerrarModal").addEventListener("click", () => $("modalRegistro").close());
+// Clic fuera del contenido (en el fondo oscuro) tambien cierra; Esc lo cierra el navegador.
+$("modalRegistro").addEventListener("click", (ev) => {
+  const r = $("modalRegistro").getBoundingClientRect();
+  const fuera = ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom;
+  if (fuera) $("modalRegistro").close();
+});
+
+function exportarCsv() {
+  const cols = ["hora", "ciclo", "uptime_s", "temp_c", "humedad", "co2_proxy", "co_ppm", "accion",
+    "alarma_co", "ventilador_pwm", "calefactor", "buzzer", "led", "motivo", "bloqueo_s", "pendiente"];
+  const q = (v) => { const s = v === null || v === undefined ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const filas = muestras.map((m) => [m.t.toISOString(), ...cols.slice(1).map((k) => m.d[k])].map(q).join(","));
+  const blob = new Blob([[cols.join(","), ...filas].join("\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `calienfriito-A403-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+$("btnCsv").addEventListener("click", exportarCsv);
+$("btnCsvModal").addEventListener("click", exportarCsv);
+
+function aplicarEstilo(estilo) {
+  document.documentElement.dataset.estilo = estilo;
+  try { localStorage.setItem("calienfriito-estilo", estilo); } catch {}
+  document.querySelectorAll("[data-estilo]").forEach((b) => {
+    if (b.tagName === "BUTTON") b.setAttribute("aria-pressed", String(b.dataset.estilo === estilo));
+  });
+  aplicarTemaGraficas(); // las graficas pintan en canvas: hay que releer los colores
+}
+document.querySelectorAll(".estilos button").forEach((b) => b.addEventListener("click", () => aplicarEstilo(b.dataset.estilo)));
+aplicarEstilo(document.documentElement.dataset.estilo);
+
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", aplicarTemaGraficas);
+// Las graficas pintan en canvas: al terminar de cargar Share Tech Mono hay que redibujarlas.
+document.fonts?.ready.then(aplicarTemaGraficas);
+aplicarTemaGraficas();
+actualizarGraficas();
+conectar();
+</script>
+</body>
+</html>
