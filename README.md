@@ -27,6 +27,7 @@ Los une **MQTT**: el nodo publica su telemetría y el backend la recibe, la guar
 
 ```
 ccs/
+├── README.md · LICENSE · docker-compose.yml
 ├── backend/              API FastAPI (ingesta HTTP y MQTT, modelo de IA, reportes)
 ├── frontend/             dashboard React; el monitor del nodo está en public/monitor/
 ├── hardware/
@@ -34,13 +35,15 @@ ccs/
 │   └── camara/           puerta de enlace anterior (Arduino UNO) y conteo con cámara
 ├── infra/
 │   ├── mqtt/             configuración de Mosquitto
-│   └── database/         scripts de inicio de PostgreSQL y MongoDB
+│   ├── database/         scripts de inicio de PostgreSQL y MongoDB
+│   └── docker-compose.prod.yml   ajustes para el servidor de producción
 ├── ml/
 │   ├── pipeline/         entrenamiento del modelo de carga térmica
 │   └── seed_data/        datos semilla: aulas (incluida A403), sensores, horarios y lecturas
 ├── tools/
 │   ├── broker-local/     broker MQTT liviano para probar solo el nodo, sin Docker
-│   └── openapi/          generador de la especificación para Watson Assistant
+│   ├── openapi/          generador de la especificación para Watson Assistant
+│   └── vscode/           workspace de VS Code (plataforma + firmware)
 └── docs/
     ├── proyecto/         perfil, proyecto redefinido, estados y escenarios, presupuesto, diagrama, enunciado
     ├── plataforma/       documentación técnica del backend y el frontend
