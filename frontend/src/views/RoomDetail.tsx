@@ -8,6 +8,7 @@ import { ArrowLeft, RefreshCw, AlertTriangle, CalendarClock, Cpu, BrainCircuit }
 import api, { getApiErrorDetail } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import type { StoredReading } from '../types'
+import { locationLabel } from '../utils/rooms'
 import { levelTemp, levelHumedad, levelCO2, levelCO, getStatusLabel } from '../utils/sensorColors'
 import {
   Card, Chip, Kpi, Tabs, LEVEL_TONE, NODE_STATE, AI_STATE, MODEL_LABEL, LIVE_SECONDS, NODE_SETPOINT,
@@ -21,6 +22,8 @@ interface RoomInfo {
   max_capacity: number
   target_temp: number
   control_policy: string   // auto | heuristic | manual
+  building?: string | null
+  floor?: number | null
 }
 
 interface SensorDevice {
@@ -400,6 +403,7 @@ export default function RoomDetail() {
               : <Chip dot>Sin lecturas</Chip>}
             {latest && <Chip tone={latest.is_simulated ? 'warn' : 'muted'}>{latest.is_simulated ? 'Datos simulados' : 'Datos reales'}</Chip>}
             {hasNode && <Chip tone="info">Nodo ESP32</Chip>}
+            {room && <><span>{locationLabel(room)}</span><span>·</span></>}
             <span>Sensor {sensorIds.join(', ') || '—'}</span>
             <span>·</span>
             <span>Capacidad {room?.max_capacity}</span>

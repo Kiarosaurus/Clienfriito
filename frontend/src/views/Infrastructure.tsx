@@ -6,15 +6,11 @@ import {
 import api, { getApiErrorDetail } from '../api/client'
 import { NUM_INPUT_MODS } from '../utils/formStyles'
 import SearchableSelect from '../components/SearchableSelect'
+import { RoomFilters, useRoomFilter } from '../components/RoomFilters'
+import { Pagination, usePage } from '../components/ui'
+import { compareRooms, locationLabel, roomOptions as groupedRoomOptions, shortName, type Room } from '../utils/rooms'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-
-interface Room {
-  id: string
-  name: string
-  max_capacity: number
-  target_temp: number
-}
 
 interface SensorDevice {
   sensor_id: string
@@ -25,7 +21,7 @@ interface SensorDevice {
 }
 
 interface Toast { type: 'success' | 'error'; message: string }
-interface EditRoomForm { new_id: string; name: string; max_capacity: string; target_temp: string }
+interface EditRoomForm { new_id: string; name: string; max_capacity: string; target_temp: string; building: string; floor: string }
 interface RoomImpact   { reservations_count: number; sensors_count: number }
 interface OrphanData  { reservations_count: number; sensors_count: number }
 
@@ -91,13 +87,12 @@ export default function Infrastructure() {
   const [sensorTab, setSensorTab] = useState<SensorTab>('register')
 
   // ── Register room ─────────────────────────────────────────────────────────
-  const [regRoomForm, setRegRoomForm] = useState({
-    id: '', name: '', max_capacity: '30', target_temp: '22',
-  })
+  const EMPTY_ROOM = { id: '', name: '', max_capacity: '30', target_temp: '22', building: '', floor: '' }
+  const [regRoomForm, setRegRoomForm] = useState(EMPTY_ROOM)
 
   // ── Edit room ─────────────────────────────────────────────────────────────
   const [editRoomId,       setEditRoomId]       = useState('')
-  const [editRoomForm,     setEditRoomForm]     = useState<EditRoomForm>({ new_id: '', name: '', max_capacity: '30', target_temp: '22' })
+  const [editRoomForm,     setEditRoomForm]     = useState<EditRoomForm>({ new_id: '', name: '', max_capacity: '30', target_temp: '22', building: '', floor: '' })
   const [editRoomModalOpen, setEditRoomModalOpen] = useState(false)
   const [pendingRoom, setPendingRoom] = useState<{ original: Room; form: EditRoomForm } | null>(null)
 
@@ -165,7 +160,10 @@ export default function Infrastructure() {
   function selectEditRoom(id: string) {
     setEditRoomId(id)
     const room = rooms.find(r => r.id === id)
-    if (room) setEditRoomForm({ new_id: room.id, name: room.name, max_capacity: String(room.max_capacity), target_temp: String(room.target_temp) })
+    if (room) setEditRoomForm({
+      new_id: room.id, name: room.name, max_capacity: String(room.max_capacity), target_temp: String(room.target_temp),
+      building: room.building ?? '', floor: room.floor == null ? '' : String(room.floor),
+    })
   }
 
   async function doRegisterRoom() {
@@ -174,9 +172,11 @@ export default function Infrastructure() {
       name: regRoomForm.name.trim(),
       max_capacity: Number(regRoomForm.max_capacity) || 0,
       target_temp: Number(regRoomForm.target_temp) || 0,
+      building: regRoomForm.building.trim() || null,
+      floor: regRoomForm.floor === '' ? null : Number(regRoomForm.floor),
     })
     showToast('success', `Aula '${regRoomForm.id.trim()}' registrada correctamente.`)
-    setRegRoomForm({ id: '', name: '', max_capacity: '30', target_temp: '22' })
+    setRegRoomForm(EMPTY_ROOM)
     await refreshRooms()
   }
 
@@ -240,6 +240,8 @@ export default function Infrastructure() {
         ...pendingRoom.form,
         max_capacity: Number(pendingRoom.form.max_capacity) || 0,
         target_temp: Number(pendingRoom.form.target_temp) || 0,
+        building: pendingRoom.form.building.trim() || null,
+        floor: pendingRoom.form.floor === '' ? null : Number(pendingRoom.form.floor),
       }, {
         params: { cascade_sensors: cascadeSensors, cascade_reservations: cascadeReservations },
       })
@@ -247,7 +249,7 @@ export default function Infrastructure() {
       showToast('success', `Aula '${label}' actualizada correctamente.`)
       setPendingRoom(null)
       setEditRoomId('')
-      setEditRoomForm({ new_id: '', name: '', max_capacity: '30', target_temp: '22' })
+      setEditRoomForm({ new_id: '', name: '', max_capacity: '30', target_temp: '22', building: '', floor: '' })
       await refreshRooms()
     } catch (err: unknown) {
       const detail = getApiErrorDetail(err)
@@ -346,7 +348,7 @@ export default function Infrastructure() {
       await api.delete(`/admin/rooms/${editRoomId}`)
       showToast('success', `Aula '${editRoomId}' eliminada definitivamente.`)
       setEditRoomId('')
-      setEditRoomForm({ new_id: '', name: '', max_capacity: '30', target_temp: '22' })
+      setEditRoomForm({ new_id: '', name: '', max_capacity: '30', target_temp: '22', building: '', floor: '' })
       setDeleteRoomConfirm('')
       setRoomImpact(null)
       await Promise.all([refreshRooms(), refreshDevices()])
@@ -377,7 +379,7 @@ export default function Infrastructure() {
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
-  const roomOptions = rooms.map(r => ({ value: r.id, label: `${r.id} — ${r.name}` }))
+  const roomOptions = groupedRoomOptions(rooms)
   // Sensor-edit variant: prepend the "detach" option (value='') so admins can orphan a sensor
   const sensorRoomOptions = [
     { value: '', label: '(Ninguna / Dejar Huérfano)' },
@@ -390,6 +392,10 @@ export default function Infrastructure() {
   const currentDevice = devices.find(d => d.sensor_id === editSensorId) ?? null
 
   const inputCls = "field"
+  const roomFilter = useRoomFilter(rooms)
+  const sortedRooms = [...roomFilter.filtered].sort(compareRooms)
+  const roomPage = usePage(sortedRooms, 10)
+  const sensorsOf = (id: string) => devices.filter(d => d.room_id === id)
   const numInputCls = `${inputCls} ${NUM_INPUT_MODS}`
   const labelCls = "field-label"
 
@@ -430,6 +436,47 @@ export default function Infrastructure() {
           <RefreshCw size={14} className="animate-spin" /> Cargando infraestructura…
         </div>
       ) : (
+
+        <>
+        {/* ── Rooms table: list → detail instead of a dropdown (rule 11) ── */}
+        <div className="surface p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="section-title">Aulas registradas · {rooms.length}</h2>
+            <RoomFilters rooms={rooms} state={roomFilter.state} onChange={roomFilter.setState} />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead>
+                <tr className="table-head">
+                  <th className="py-2 pr-4 font-normal">Aula</th>
+                  <th className="py-2 pr-4 font-normal">Ubicación</th>
+                  <th className="py-2 pr-4 font-normal">Capacidad</th>
+                  <th className="py-2 pr-4 font-normal">Temp. objetivo</th>
+                  <th className="py-2 pr-4 font-normal">Sensores</th>
+                  <th className="py-2 font-normal" />
+                </tr>
+              </thead>
+              <tbody>
+                {roomPage.rows.map(r => (
+                  <tr key={r.id} className={`table-row ${editRoomId === r.id ? 'bg-slate-800/50' : ''}`}>
+                    <td className="py-2 pr-4"><span className="font-medium text-slate-100">{r.id}</span> <span className="text-slate-400">{shortName(r)}</span></td>
+                    <td className="py-2 pr-4 text-slate-300">{locationLabel(r)}</td>
+                    <td className="py-2 pr-4 tabular-nums text-slate-300">{r.max_capacity}</td>
+                    <td className="py-2 pr-4 tabular-nums text-slate-300">{r.target_temp} °C</td>
+                    <td className="py-2 pr-4 text-xs text-slate-400">{sensorsOf(r.id).map(d => d.sensor_id).join(', ') || '—'}</td>
+                    <td className="py-2 text-right">
+                      <button className="btn btn-ghost py-1" onClick={() => { setRoomTab('edit'); selectEditRoom(r.id) }}>
+                        <Pencil size={13} /> Editar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {sortedRooms.length === 0 && <p className="py-4 text-sm text-slate-400">Ningún aula coincide con los filtros.</p>}
+          <Pagination {...roomPage} noun="aulas" />
+        </div>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
 
@@ -491,6 +538,24 @@ export default function Infrastructure() {
                           value={regRoomForm.target_temp}
                           onChange={e => setRegRoomForm(f => ({ ...f, target_temp: e.target.value }))}
                           onBlur={e => setRegRoomForm(f => ({ ...f, target_temp: e.target.value === '' ? '0' : e.target.value }))}
+                          className={numInputCls}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className={labelCls}>Edificio</label>
+                        <input type="text" placeholder="ej. M" maxLength={10}
+                          value={regRoomForm.building}
+                          onChange={e => setRegRoomForm(f => ({ ...f, building: e.target.value.toUpperCase() }))}
+                          className={inputCls}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Piso</label>
+                        <input type="number" placeholder="ej. 6" min={-5} max={99}
+                          value={regRoomForm.floor}
+                          onChange={e => setRegRoomForm(f => ({ ...f, floor: e.target.value }))}
                           className={numInputCls}
                         />
                       </div>
@@ -562,6 +627,24 @@ export default function Infrastructure() {
                               value={editRoomForm.target_temp}
                               onChange={e => setEditRoomForm(f => ({ ...f, target_temp: e.target.value }))}
                               onBlur={e => setEditRoomForm(f => ({ ...f, target_temp: e.target.value === '' ? '0' : e.target.value }))}
+                              className={numInputCls}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className={labelCls}>Edificio</label>
+                            <input type="text" maxLength={10}
+                              value={editRoomForm.building}
+                              onChange={e => setEditRoomForm(f => ({ ...f, building: e.target.value.toUpperCase() }))}
+                              className={inputCls}
+                            />
+                          </div>
+                          <div>
+                            <label className={labelCls}>Piso</label>
+                            <input type="number" min={-5} max={99}
+                              value={editRoomForm.floor}
+                              onChange={e => setEditRoomForm(f => ({ ...f, floor: e.target.value }))}
                               className={numInputCls}
                             />
                           </div>
@@ -753,6 +836,7 @@ export default function Infrastructure() {
           </div>
 
         </div>
+        </>
       )}
 
       {/* ── Modal: Confirmar edición de aula ──────────────────────────────── */}
@@ -780,6 +864,7 @@ export default function Infrastructure() {
                 <DataRow label="Nombre"               value={pendingRoom.original.name} />
                 <DataRow label="Capacidad"            value={`${pendingRoom.original.max_capacity} personas`} />
                 <DataRow label="Temperatura Objetivo" value={`${pendingRoom.original.target_temp} °C`} />
+                <DataRow label="Ubicación" value={locationLabel(pendingRoom.original)} />
               </div>
               <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 space-y-4">
                 <p className="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
@@ -795,6 +880,10 @@ export default function Infrastructure() {
                 />
                 <DataRow label="Capacidad" value={`${pendingRoom.form.max_capacity} personas`}
                   changed={Number(pendingRoom.form.max_capacity) !== pendingRoom.original.max_capacity}
+                />
+                <DataRow label="Ubicación"
+                  value={locationLabel({ building: pendingRoom.form.building || null, floor: pendingRoom.form.floor === '' ? null : Number(pendingRoom.form.floor) })}
+                  changed={(pendingRoom.form.building || null) !== (pendingRoom.original.building ?? null) || (pendingRoom.form.floor === '' ? null : Number(pendingRoom.form.floor)) !== (pendingRoom.original.floor ?? null)}
                 />
                 <DataRow label="Temperatura Objetivo" value={`${pendingRoom.form.target_temp} °C`}
                   changed={Number(pendingRoom.form.target_temp) !== pendingRoom.original.target_temp}
