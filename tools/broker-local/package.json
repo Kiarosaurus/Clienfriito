@@ -1,0 +1,13 @@
+{
+  "name": "calienfriito-broker-local",
+  "private": true,
+  "description": "Broker MQTT local (TCP 1883 + WebSocket 9001) para la simulacion de Wokwi y el dashboard",
+  "type": "module",
+  "scripts": {
+    "start": "node broker.mjs"
+  },
+  "dependencies": {
+    "aedes": "0.51.3",
+    "websocket-stream": "5.5.2"
+  }
+}
