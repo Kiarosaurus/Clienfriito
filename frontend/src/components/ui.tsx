@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import type { SensorLevel } from '../utils/sensorColors'
 
 // Shared visual system (see .claude/CLAUDE.md, design rules).
@@ -125,6 +125,31 @@ export function Dialog({ title, onClose, children, footer, size = 'md' }: {
         <div className="p-4">{children}</div>
         {footer && <footer className="flex items-center gap-2 border-t border-slate-800 px-4 py-3">{footer}</footer>}
       </div>
+    </div>
+  )
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+// Floating confirmation that never shifts the layout.
+export type ToastMsg = { type: 'ok' | 'error'; text: string }
+
+export function useToast() {
+  const [toast, setToast] = useState<ToastMsg | null>(null)
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 4500)
+    return () => clearTimeout(t)
+  }, [toast])
+  return { toast, notify: (type: ToastMsg['type'], text: string) => setToast({ type, text }), clear: () => setToast(null) }
+}
+
+export function Toast({ toast, onClose }: { toast: ToastMsg | null; onClose: () => void }) {
+  if (!toast) return null
+  return (
+    <div role="status" className={`surface fixed bottom-6 left-1/2 z-[70] flex -translate-x-1/2 items-center gap-2 px-4 py-2 text-sm shadow-xl ${toast.type === 'ok' ? 'text-emerald-300' : 'text-red-300'}`}>
+      {toast.type === 'ok' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+      {toast.text}
+      <button className="btn btn-ghost -mr-2 px-1.5 py-1" onClick={onClose} aria-label="Cerrar"><X size={14} /></button>
     </div>
   )
 }
