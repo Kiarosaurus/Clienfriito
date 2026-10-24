@@ -2,9 +2,9 @@
 Generate a Watson-compatible OpenAPI 3.0.0 spec from the FastAPI app.
 
 Usage (run from project root):
-  python generate_openapi.py [--server https://your-ngrok-url.ngrok-free.app]
+  python tools/openapi/generate_openapi.py [--server https://your-ngrok-url.ngrok-free.app]
 
-Output: openapi_watson.json
+Output: tools/openapi/openapi_watson.json
 """
 
 import sys
@@ -13,7 +13,8 @@ import json
 import argparse
 
 # Allow importing the backend package from the project root
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
+# tools/openapi -> raiz del repo -> backend
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "backend"))
 
 # Minimal env vars so config.py doesn't crash at import
 os.environ.setdefault("MONGO_URI", "mongodb://localhost:27017")
@@ -261,7 +262,7 @@ def inline_object_property_refs(spec: dict) -> dict:
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate Watson-compatible openapi_watson.json")
+    parser = argparse.ArgumentParser(description="Generate Watson-compatible tools/openapi/openapi_watson.json")
     parser.add_argument(
         "--server",
         default="https://ccs-demo.ngrok-free.app",
@@ -269,8 +270,8 @@ def main():
     )
     parser.add_argument(
         "--out",
-        default="openapi_watson.json",
-        help="Output file name. Default: openapi_watson.json",
+        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "openapi_watson.json"),
+        help="Output file name. Default: tools/openapi/openapi_watson.json",
     )
     args = parser.parse_args()
 
@@ -306,8 +307,8 @@ def main():
     print(f"\nSaved → {args.out}")
     print("\nNext steps:")
     print("  1. Start ngrok:  ngrok http 8000")
-    print("  2. Re-run:       python generate_openapi.py --server https://<your-id>.ngrok-free.app")
-    print("  3. Import openapi_watson.json into Watson Assistant → Integrations → Custom Extension")
+    print("  2. Re-run:       python tools/openapi/generate_openapi.py --server https://<your-id>.ngrok-free.app")
+    print("  3. Import tools/openapi/openapi_watson.json into Watson Assistant → Integrations → Custom Extension")
 
 
 if __name__ == "__main__":

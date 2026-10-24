@@ -110,8 +110,8 @@ Climate-Cognitive-System/
 │   ├── slides.tex         # Spanish presentation (beamer)
 │   └── refs.bib
 ├── docker-compose.yml
-├── generate_openapi.py
-├── openapi_watson.json
+├── tools/openapi/generate_openapi.py
+├── tools/openapi/openapi_watson.json
 ├── .env                   # (NOT versioned)
 ├── .env.example
 ├── README.md
@@ -198,8 +198,8 @@ See section [3.8](#38-utec-seed-dataset-seed_data) for the attendance-model deta
 | File | Purpose |
 |---|---|
 | `docker-compose.yml` | Orchestration of the 4 services (backend, frontend, postgres, mongo) with healthchecks and persistent volumes |
-| `generate_openapi.py` | Utility script: serializes FastAPI's `app.openapi()` to static JSON |
-| `openapi_watson.json` | OpenAPI spec published as a **custom extension** in IBM Watson Assistant |
+| `tools/openapi/generate_openapi.py` | Utility script: serializes FastAPI's `app.openapi()` to static JSON |
+| `tools/openapi/openapi_watson.json` | OpenAPI spec published as a **custom extension** in IBM Watson Assistant |
 | `.env` | Environment variables (NOT versioned) |
 
 ---
@@ -812,7 +812,7 @@ at train and serve time, not that it moves this synthetic target.
 - [x] **Exogenous climate driver + model that beats the baseline (Tier 2)** — `climate_service.py` (deterministic Lima outdoor temperature), `outdoor_temp` feature, per-room thermal factor, non-circular target → `beats_baselines: true` (section 3.9)
 - [x] **Per-room physical metadata (Tier 3)** — `room_profile.py` replaces the opaque `room_code` with `floor`/`volume_m3`/`ac_btu`; single source of the `thermal_factor`; no train/serve skew (section 3.10)
 - [x] Persistence of `cognitive_action` in MongoDB alongside each reading — fields: `ac_status` (`ON` / `STANDBY` / `DISABLED`), `target`, `thermal_load_offset`, `model` (`ml` / `heuristic` / `manual` / `none`) + the occupancy telemetry (§3.7.3)
-- [x] **IBM Watson Assistant** integration via the `/api/v1/chat/` proxy (custom extension with OpenAPI published in `openapi_watson.json`)
+- [x] **IBM Watson Assistant** integration via the `/api/v1/chat/` proxy (custom extension with OpenAPI published in `tools/openapi/openapi_watson.json`)
 - [x] **Energy ROI** computation engine (`/reports/roi`): 7 days, kWh saved, monetary value (USD); the CO₂-avoided figure (kg) is derived client-side in `ROIReport.tsx` (0.233 kg/kWh grid factor)
 - [x] **ROI simulation** when the database is recent and there is not yet enough history — projects plausible values so the dashboard is not empty in demos
 
