@@ -5,7 +5,9 @@ python-multipart>=0.0.9
 pydantic>=2.6
 
 # --- Persistencia relacional (PostgreSQL) ---
-sqlalchemy>=2.0
+# <2.1: SQLAlchemy 2.1 maps "postgresql://" to psycopg (v3), but the project ships
+# psycopg2 — a fresh build would fail to reach PostgreSQL ("No module named psycopg").
+sqlalchemy>=2.0,<2.1
 psycopg2-binary>=2.9
 
 # --- Persistencia no relacional (MongoDB) ---
