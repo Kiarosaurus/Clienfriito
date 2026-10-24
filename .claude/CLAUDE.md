@@ -24,5 +24,10 @@ El dashboard React (`frontend/`) usa **Tailwind** como único sistema visual. Al
 6. **Tarjetas compactas** (~72 px de alto, todas iguales): etiqueta, valor y chip de estado. Sin cajas de iconos grandes.
 7. **El color solo indica estado** y siempre va con texto o ícono. Sin filas de leyenda: la leyenda va en el propio gráfico o en el tooltip.
 8. **Un gráfico por magnitud**, con ventana de tiempo (no por cantidad de puntos) y solo líneas de referencia con significado: setpoint y umbrales del nodo.
-9. **Un solo sistema visual:** escala de espaciado de 4 px, tres tamaños de texto (`text-xs`, `text-sm`, `text-2xl`), un solo estilo de tarjeta (`components/ui.tsx`).
+9. **Un solo sistema visual**, con clases comunes en `frontend/src/index.css` (`surface`, `field`, `btn-primary`, `chip-*`, `table-head`, `segmented`…) y componentes en `components/ui.tsx`. No inventar estilos sueltos.
+   - **Fondos:** página `slate-950`; barra, menú, tarjetas y modales `slate-900` con borde `slate-800`; campos `slate-950`.
+   - **Colores:** azul solo para acciones principales, selección y foco. Estados: verde (normal), ámbar (atención), naranja (elevado), rojo (alerta), celeste (informativo). Nada de morado, índigo, teal ni amarillo.
+   - **Gráficos:** una serie en celeste, comparaciones en gris, colores de estado solo en umbrales.
+   - **Texto:** tres tamaños (`text-xs`, `text-sm`, `text-xl`), máximo `font-semibold`, sin mayúsculas sostenidas.
+   - **Forma:** `rounded-lg` en todo (modales `rounded-xl`, chips `rounded-full`); botones y campos de la misma altura; espaciado en múltiplos de 4 px.
 10. **Todo en español** y con estados en lenguaje de usuario ("Enfriando", "En espera"), no códigos internos (`COOLING`, `STANDBY`).
