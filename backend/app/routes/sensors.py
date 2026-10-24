@@ -57,6 +57,8 @@ class SensorReadingOut(BaseModel):
     is_simulated: bool = False
     timestamp: str
     cognitive_action: Optional[CognitiveActionOut] = None
+    # Decision taken on the ESP32 node (readings ingested over MQTT); None for HTTP readings.
+    node_state: Optional[dict] = None
 
 
 class EmergencyEntryOut(BaseModel):
