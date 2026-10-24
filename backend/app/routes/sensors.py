@@ -132,12 +132,14 @@ async def list_readings(
 
 
 class RoomLatestOut(BaseModel):
-    room_id: str
+    room_id: Optional[str] = None
+    sensor_id: Optional[str] = None
     reading: Optional[SensorReadingOut] = None
 
 
 @router.get("/latest", response_model=List[RoomLatestOut])
 async def latest_by_room(
+    by: str = Query("room", pattern="^(room|sensor)$"),
     db: AsyncIOMotorDatabase = Depends(get_db),
     db_sql: Session = Depends(get_db_sql),
     current_user: User = Depends(get_current_user),
@@ -145,10 +147,11 @@ async def latest_by_room(
     """Latest reading of every room in one response (one aggregation, not one request per room).
 
     Rooms without sensors or without readings are included with reading=None.
+    by=sensor returns one row per registered sensor instead (for the sensors table).
     """
     def _load():
         rooms = [r.id for r in db_sql.query(Room.id).all()]
-        devices = db_sql.query(SensorDevice.id, SensorDevice.room_id).filter(SensorDevice.room_id.isnot(None)).all()
+        devices = db_sql.query(SensorDevice.id, SensorDevice.room_id).all()
         return rooms, devices
 
     rooms, devices = await run_in_threadpool(_load)
@@ -163,6 +166,10 @@ async def latest_by_room(
     except PyMongoError as exc:
         logger.error("MongoDB unavailable: %s", exc)
         raise HTTPException(status_code=503, detail="Database unavailable") from exc
+
+    if by == "sensor":
+        last = {g["_id"]: {k: v for k, v in g["doc"].items() if k != "_id"} for g in groups}
+        return [{"sensor_id": sid, "room_id": rid, "reading": last.get(sid)} for sid, rid in devices]
 
     latest: dict[str, dict] = {}
     for g in groups:
