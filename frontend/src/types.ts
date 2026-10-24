@@ -44,3 +44,33 @@ export interface CombinedReading {
   output: SensorReadingResponse
   sentAt: number
 }
+
+// Decision taken and executed by the ESP32 node (MQTT telemetry), stored next to
+// the backend's shadow `cognitive_action`. Null for readings that did not come from a node.
+export interface NodeState {
+  accion?: 'COOLING' | 'HEATING' | 'STANDBY' | 'DISABLED' | 'PRE_COOLING' | string
+  motivo?: string
+  alarma_co?: boolean
+  ventilador_pwm?: number
+  calefactor?: boolean
+  buzzer?: boolean
+  led?: string
+  bloqueo_s?: number
+  pendiente?: string
+  ciclo?: number
+  uptime_s?: number
+  co2_proxy?: number
+}
+
+// Flat reading document as returned by GET /sensors/.
+export interface StoredReading {
+  sensor_id: string
+  temperature: number
+  humidity: number
+  co2_ppm: number | null
+  co_ppm: number | null
+  is_simulated?: boolean
+  timestamp: string
+  cognitive_action?: CognitiveAction | null
+  node_state?: NodeState | null
+}
