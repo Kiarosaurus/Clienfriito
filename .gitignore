@@ -45,10 +45,10 @@ Thumbs.db
 
 # ML artifacts (generated — run ml_pipeline scripts to reproduce)
 backend/app/ml/
-ml_pipeline/data/
+ml/pipeline/data/
 
-# Seed dataset output (generated — run seed_data/generate_dataset.py to reproduce)
-seed_data/output/
+# Seed dataset output (generated — run ml/seed_data/generate_dataset.py to reproduce)
+ml/seed_data/output/
 
 # LaTeX build artifacts (informe.pdf is kept as the deliverable)
 informe/*.aux

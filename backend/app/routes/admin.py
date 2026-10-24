@@ -263,7 +263,7 @@ def update_room_policy(
 def reload_model(current_user: User = Depends(get_current_user)):
     """Reload the ML model from disk without restarting the backend.
 
-    Run the training pipeline (ml_pipeline/extract_data.py → train_model.py) to
+    Run the training pipeline (ml/pipeline/extract_data.py → train_model.py) to
     regenerate model.joblib, then call this to pick it up live. Admin-only.
     """
     _require_admin(current_user)

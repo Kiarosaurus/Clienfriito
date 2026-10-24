@@ -23,7 +23,7 @@ Target — target_temp_offset:
     model exceed the heuristic (see TECHNICAL_DOCUMENTATION.md, To-Do / D2).
 
 Usage (run from project root):
-    python ml_pipeline/extract_data.py
+    python ml/pipeline/extract_data.py
 """
 
 import json
@@ -36,7 +36,7 @@ from pymongo import MongoClient
 
 # Import the shared climate + room-profile + occupancy models and the bootstrap
 # label helper (single source of every assumption — nothing is mirrored by hand).
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))  # ml/pipeline -> raiz
 from app.services.climate_service import outdoor_temp as _outdoor_temp  # noqa: E402
 from app.services.occupancy_service import (  # noqa: E402
     CO2_BASELINE_PPM,

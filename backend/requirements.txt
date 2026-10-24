@@ -23,7 +23,7 @@ numpy>=1.26
 pandas>=2.1
 # Pinned to the version the shipped model.joblib bundle was pickled with —
 # unpickling across sklearn versions raises InconsistentVersionWarning and may
-# break. Bump ONLY together with a retrain (ml_pipeline/train_model.py).
+# break. Bump ONLY together with a retrain (ml/pipeline/train_model.py).
 scikit-learn==1.8.0
 joblib>=1.3
 

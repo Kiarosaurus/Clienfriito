@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))  # ml/pipeline -> raiz
 from app.services.predictive_service import THERMAL_LOAD_PER_PERSON  # noqa: E402
 
 

@@ -22,8 +22,8 @@ Validation:
     bundle whose beats_baselines is false (serve-side gate).
 
 Usage (run from project root):
-    python ml_pipeline/extract_data.py   # generate data first
-    python ml_pipeline/train_model.py
+    python ml/pipeline/extract_data.py   # generate data first
+    python ml/pipeline/train_model.py
 """
 
 import hashlib
@@ -45,7 +45,7 @@ from common import bootstrap_people_load
 
 DATA_CSV = Path(__file__).parent / "data" / "features.csv"
 ROOM_MAP_JSON = Path(__file__).parent / "data" / "room_map.json"
-MODEL_OUTPUT = Path(__file__).parent.parent / "backend" / "app" / "ml" / "model.joblib"
+MODEL_OUTPUT = Path(__file__).resolve().parents[2] / "backend" / "app" / "ml" / "model.joblib"
 
 # Order MUST match the ML feature vector in predictive_service.calculate_cooling_demand.
 # room_code (opaque) replaced by physical metadata: floor, volume_m3, ac_btu (Tier 3).
@@ -80,7 +80,7 @@ def _heuristic_offset(X: np.ndarray) -> np.ndarray:
 
     Deliberately blind to outdoor_temp and room metadata, so the model can win by
     using them. X columns are in FEATURES order. Formula shared with the label
-    builder via ml_pipeline/common.py — they must stay numerically identical.
+    builder via ml/pipeline/common.py — they must stay numerically identical.
     """
     hour = X[:, FEATURES.index("hour_of_day")]
     actual = X[:, FEATURES.index("actual_occupancy")]

@@ -681,7 +681,7 @@
           "admin"
         ],
         "summary": "Reload Model",
-        "description": "Reload the ML model from disk without restarting the backend.\n\nRun the training pipeline (ml_pipeline/extract_data.py → train_model.py) to\nregenerate model.joblib, then call this to pick it up live. Admin-only.",
+        "description": "Reload the ML model from disk without restarting the backend.\n\nRun the training pipeline (ml/pipeline/extract_data.py → train_model.py) to\nregenerate model.joblib, then call this to pick it up live. Admin-only.",
         "operationId": "reload_model_api_v1_admin_model_reload_post",
         "responses": {
           "200": {

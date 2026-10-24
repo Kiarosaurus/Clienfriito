@@ -33,8 +33,8 @@ Los une **MQTT**: el nodo publica su telemetría y el backend la recibe, la guar
 | [`backend/`](backend/) | API FastAPI. La ingesta MQTT está en [`app/services/mqtt_ingest.py`](backend/app/services/mqtt_ingest.py) |
 | [`frontend/`](frontend/) | Dashboard React. El monitor del nodo está en [`public/monitor/`](frontend/public/monitor/index.html) |
 | [`infra/database/`](infra/database/) | Scripts de inicio de PostgreSQL y MongoDB |
-| [`seed_data/`](seed_data/) | Datos semilla: aulas (incluida A403), sensores, horarios y lecturas históricas |
-| [`ml_pipeline/`](ml_pipeline/) | Entrenamiento del modelo de carga térmica |
+| [`ml/seed_data/`](ml/seed_data/) | Datos semilla: aulas (incluida A403), sensores, horarios y lecturas históricas |
+| [`ml/pipeline/`](ml/pipeline/) | Entrenamiento del modelo de carga térmica |
 | [`tools/broker-local/`](tools/broker-local/) | Broker MQTT liviano para probar solo el nodo, **sin Docker** |
 | [`docs/`](docs/) | Perfil del proyecto, estados y escenarios, presupuesto, diagrama y [documentación de la plataforma](docs/PLATAFORMA.md) |
 | [`informe/`](informe/) | Informe en LaTeX (plantilla ACM) |
@@ -71,10 +71,10 @@ igual se guardan, pero el dashboard React no muestra el aula.
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
-python seed_data/generate_dataset.py
+python ml/seed_data/generate_dataset.py
 ```
 
-Más detalles en [`seed_data/DATASET_GUIDE.md`](seed_data/DATASET_GUIDE.md).
+Más detalles en [`ml/seed_data/DATASET_GUIDE.md`](ml/seed_data/DATASET_GUIDE.md).
 
 ### 3. Compilar y simular el nodo
 

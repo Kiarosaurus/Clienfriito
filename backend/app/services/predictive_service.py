@@ -57,7 +57,7 @@ def load_model() -> None:
 
     If the model file does not exist, the service degrades gracefully to the
     heuristic fallback. No exception is raised so the rest of the API stays live.
-    Train with: ml_pipeline/extract_data.py → ml_pipeline/train_model.py
+    Train with: ml/pipeline/extract_data.py → ml/pipeline/train_model.py
     """
     global _model, _features, _room_map, _metadata
     try:
@@ -65,7 +65,7 @@ def load_model() -> None:
         if not _MODEL_PATH.exists():
             logger.warning(
                 "model.joblib not found at %s — heuristic fallback active. "
-                "Run ml_pipeline/extract_data.py then ml_pipeline/train_model.py.",
+                "Run ml/pipeline/extract_data.py then ml/pipeline/train_model.py.",
                 _MODEL_PATH,
             )
             return

@@ -41,9 +41,9 @@ motor cognitivo.
 Desde la raíz del proyecto, con los puertos de las DB expuestos en `localhost`:
 
 ```bash
-python seed_data/generate_dataset.py --dry-run   # solo JSON en output/, sin tocar DB
-python seed_data/generate_dataset.py             # inserta en Mongo + Postgres
-python seed_data/generate_dataset.py --wipe      # limpia sensor_readings antes de insertar
+python ml/seed_data/generate_dataset.py --dry-run   # solo JSON en output/, sin tocar DB
+python ml/seed_data/generate_dataset.py             # inserta en Mongo + Postgres
+python ml/seed_data/generate_dataset.py --wipe      # limpia sensor_readings antes de insertar
 ```
 
 Overrides: `MONGO_URI`, `POSTGRES_URI`.

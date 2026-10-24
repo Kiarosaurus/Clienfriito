@@ -81,7 +81,7 @@ Además hay un problema práctico grave para la demo: el nodo depende de una **l
 
 Es el punto más fuerte del proyecto y, con diferencia, el que mejor supera lo pedido. El enunciado pide un dashboard que *"no solo visualice datos, sino que incluya un procesamiento previo de los mismos para obtener métricas que respalden el correcto funcionamiento del sistema"*. El proyecto entrega:
 
-- **Modelo ML real y validado**: `HistGradientBoostingRegressor` con holdout cronológico y dos baselines (media y solo-ocupación); si `beats_baselines` es falso, el modelo no se despliega y el sistema cae a heurística transparente (`ml_pipeline/train_model.py`, `backend/app/services/predictive_service.py`).
+- **Modelo ML real y validado**: `HistGradientBoostingRegressor` con holdout cronológico y dos baselines (media y solo-ocupación); si `beats_baselines` es falso, el modelo no se despliega y el sistema cae a heurística transparente (`ml/pipeline/train_model.py`, `backend/app/services/predictive_service.py`).
 - **Ocupación real inferida por balance de masa de CO₂**, contrastada contra el conteo directo de cámara (`backend/app/services/occupancy_service.py`).
 - **Reporte de ROI** en kWh y USD sobre ventana de 7 días, reconstruyendo el runtime desde el histórico de `cognitive_action` (`backend/app/routes/reports.py`).
 - **Monitor de emergencias de CO** con ventana deslizante de 15 s y clasificación real/simulado.
@@ -151,7 +151,7 @@ Se puede reutilizar mucho del contenido, pero **hay que producir un informe nuev
 
 El ventilador **no reemplaza funcionalmente al A/C**: un A/C extrae calor y alcanza un setpoint; un ventilador solo aumenta la convección y la temperatura percibida. Todo el andamiaje de "pre-cooling" está construido sobre semántica de aire acondicionado y hay que rearmar la narrativa:
 
-- `ac_btu` es una **feature de entrenamiento** del modelo (`ml_pipeline/train_model.py:54`), con valores de 24 000–36 000 BTU por aula en `backend/app/services/room_profile.py:25-30`. Si el actuador es un ventilador, esa feature deja de tener significado físico.
+- `ac_btu` es una **feature de entrenamiento** del modelo (`ml/pipeline/train_model.py:54`), con valores de 24 000–36 000 BTU por aula en `backend/app/services/room_profile.py:25-30`. Si el actuador es un ventilador, esa feature deja de tener significado físico.
 - El reporte de ROI asume `AC_POWER_KW = 2.5` (`backend/app/routes/reports.py:32`). Un ventilador consume ~0.02–0.05 kW. Los ahorros reportados en USD dejan de corresponder al hardware demostrado, lo cual es un flanco abierto en preguntas.
 - El `cognitive_action` seguirá emitiendo `PRE-COOLING`, término que ya no describe lo que hace el actuador.
 
