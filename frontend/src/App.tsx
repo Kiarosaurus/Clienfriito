@@ -4,8 +4,7 @@ import { useAuth } from './context/AuthContext'
 import { EmergencyProvider } from './context/EmergencyContext'
 import Layout from './components/Layout'
 import Login from './components/Login'
-import GlobalDashboard from './views/GlobalDashboard'
-import RoomSearch from './views/RoomSearch'
+import Overview from './views/Overview'
 import SensorSearch from './views/SensorSearch'
 import Reservations from './views/Reservations'
 import UserManagement from './views/UserManagement'
@@ -15,6 +14,7 @@ import Register from './views/Register'
 // Chart-heavy views load on demand — keeps Recharts out of the initial bundle.
 const RoomDetail = lazy(() => import('./views/RoomDetail'))
 const ROIReport  = lazy(() => import('./views/ROIReport'))
+const Simulation = lazy(() => import('./views/Simulation'))
 
 function RouteFallback() {
   return (
@@ -71,8 +71,8 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<GlobalDashboard />} />
-          <Route path="rooms"        element={<RoomSearch />} />
+          <Route index element={<Overview />} />
+          <Route path="rooms"        element={<Navigate to="/" replace />} />
           <Route path="room/:id"     element={<RoomDetail />} />
           <Route
             path="sensors"
@@ -103,6 +103,14 @@ export default function App() {
             element={
               <AdminRoute>
                 <Infrastructure />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="admin/simulation"
+            element={
+              <AdminRoute>
+                <Simulation />
               </AdminRoute>
             }
           />

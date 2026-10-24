@@ -1,6 +1,5 @@
 // Semantic threshold levels + colors for sensor readings.
-// Single source of truth shared by GlobalDashboard (metric cards + table) and
-// RoomDetail (table). Dentro de rango → gris neutro (#7a96b5, texto secundario);
+// Single source of truth shared by the Resumen, Aula and Simulación views. Dentro de rango → gris neutro (#7a96b5, texto secundario);
 // fuera de rango escala amarillo (#eab308) → naranja (#f97316) → rojo (#ef4444).
 
 export type SensorLevel = 'normal' | 'atencion' | 'elevado' | 'alerta'

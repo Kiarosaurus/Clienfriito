@@ -46,10 +46,10 @@ export function EmergencyProvider({ children }: { children: React.ReactNode }) {
   // Key = roomId:isSimulated — detects new entries to reopen popup
   const prevKeysRef = useRef<Set<string>>(new Set())
 
-  // Immediately clear stale state when navigating away from the dashboard.
+  // Immediately clear stale state when navigating away from the simulation page.
   // The next polling cycle (≤5 s) will repopulate if a real emergency persists.
   useEffect(() => {
-    if (pathname !== '/') {
+    if (pathname !== '/admin/simulation') {
       setRealEmergencies([])
       setSimulatedEmergencies([])
       prevKeysRef.current = new Set()
