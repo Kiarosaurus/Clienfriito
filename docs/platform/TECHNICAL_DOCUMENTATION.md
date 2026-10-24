@@ -1,6 +1,6 @@
 # Extended Documentation — Climate Cognitive System
 
-> Technical document covering architecture, design decisions and advanced mechanics implemented in the system. For the installation and deployment guide, see [README.md](../../README.md). For the Spanish project report (course rubric), see [`docs/informe/informe.pdf`](../informe/informe-proyecto-iot.pdf).
+> Technical document covering architecture, design decisions and advanced mechanics implemented in the system. For the installation and deployment guide, see [README.md](../../README.md). For the Spanish project report (course rubric), see [`docs/report/informe.pdf`](../report/informe-proyecto-iot.pdf).
 
 ---
 
@@ -105,7 +105,7 @@ Climate-Cognitive-System/
 ├── hardware/
 │   ├── sistema.py         # Arduino UNO Serial → camera occupancy → HTTPS gateway
 │   └── README.md          # wiring, calibration and run instructions
-├── docs/informe/
+├── docs/report/
 │   ├── informe.tex        # Spanish project report (rubric)
 │   ├── slides.tex         # Spanish presentation (beamer)
 │   └── refs.bib
@@ -115,7 +115,7 @@ Climate-Cognitive-System/
 ├── .env                   # (NOT versioned)
 ├── .env.example
 ├── README.md
-└── docs/plataforma/TECHNICAL_DOCUMENTATION.md
+└── docs/platform/TECHNICAL_DOCUMENTATION.md
 ```
 
 ### 2.1 `backend/` — Python application layer

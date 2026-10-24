@@ -6,8 +6,8 @@
 
 **Equipo:** Brayan Eduardo Gomero Castillo · Kiara Alexandra Balcázar Santa Cruz · Rodrigo Dion Carlos Acosta
 **Aula de despliegue:** A403 — UTEC Barranco
-**Fuente de verdad del alcance:** [`docs/proyecto/PERFIL_PROYECTO_CS5055.tex`](PERFIL_PROYECTO_CS5055.tex)
-**Rúbrica base:** `docs/proyecto/CS5055_Proyectos262.pdf`
+**Fuente de verdad del alcance:** [`docs/project/PERFIL_PROYECTO_CS5055.tex`](PERFIL_PROYECTO_CS5055.tex)
+**Rúbrica base:** `docs/project/CS5055_Proyectos262.pdf`
 **Auditoría previa:** [`AUDITORIA_SECCION1_CS5055.md`](AUDITORIA_SECCION1_CS5055.md)
 **Retroalimentación del docente:** incorporada (sensores, actuadores, alcance de 8 semanas, presupuesto)
 **Fecha:** 2026-09-20
@@ -19,7 +19,7 @@
 | Documento | Qué responde |
 |---|---|
 | `AUDITORIA_SECCION1_CS5055.md` | **De dónde venimos.** Qué cumplía y qué no cumplía el proyecto heredado del curso de Computación Cognitiva frente a la Sección 1 de la rúbrica de IoT. Diagnóstico, no plan. |
-| `docs/proyecto/PERFIL_PROYECTO_CS5055.tex` | **Qué es el proyecto.** Definición oficial y entregable de la Semana 7: problemática, sensores, actuadores, núcleo de las dos lógicas, alcance y fuera de alcance. **Es la fuente de verdad.** |
+| `docs/project/PERFIL_PROYECTO_CS5055.tex` | **Qué es el proyecto.** Definición oficial y entregable de la Semana 7: problemática, sensores, actuadores, núcleo de las dos lógicas, alcance y fuera de alcance. **Es la fuente de verdad.** |
 | `PROYECTO_REDEFINIDO_CS5055.md` (este) | **Cómo lo ejecutamos.** Mapeo requisito por requisito contra la rúbrica, lista de compras cerrada con presupuesto, requisitos funcionales y no funcionales, plan de 8 semanas y matriz de riesgos. |
 
 Si este documento y el `.tex` se contradicen, manda el `.tex`. La sección 12 registra los puntos que se revisaron para que ambos digan lo mismo.

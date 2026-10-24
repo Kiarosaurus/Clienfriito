@@ -9,7 +9,7 @@ reproducible — the same timestamp always yields the same outdoor temperature.
 Why it matters: without an exogenous driver, the cooling-demand label degenerates
 into `occupancy × k`, which the occupancy heuristic already reproduces exactly, so
 an ML model can never beat that baseline. Feeding the outdoor temperature gives the
-model real, independent signal to learn (see docs/plataforma/TECHNICAL_DOCUMENTATION.md §3.9 / Tier 2).
+model real, independent signal to learn (see docs/platform/TECHNICAL_DOCUMENTATION.md §3.9 / Tier 2).
 
 Both the seed generator and the live predictive service import THIS module, so the
 climate assumption is defined in exactly one place.

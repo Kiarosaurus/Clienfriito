@@ -9,7 +9,7 @@
 
 > An IoT cognitive platform that turns raw climate-sensor telemetry into **predictive, occupancy-aware air-conditioning decisions** — pre-cooling rooms *before* they fill up, flagging CO emergencies in real time, and quantifying the energy it saves.
 
-> 🌐 **Live instance:** [kiarosaurus.me](https://kiarosaurus.me) · 📖 Technical deep-dive: [docs/plataforma/TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md) · 📄 Project report (Spanish, rubric): [`docs/informe/informe.pdf`](../informe/informe-proyecto-iot.pdf)
+> 🌐 **Live instance:** [kiarosaurus.me](https://kiarosaurus.me) · 📖 Technical deep-dive: [docs/platform/TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md) · 📄 Project report (Spanish, rubric): [`docs/report/informe.pdf`](../report/informe-proyecto-iot.pdf)
 
 <!-- Screenshots: drop PNGs into docs/assets/ and uncomment.
 | Global dashboard | Room detail | ROI report |
@@ -161,7 +161,7 @@ Climate-Cognitive-System/
 ├── hardware/
 │   ├── sistema.py               # Arduino UNO Serial → camera occupancy → HTTPS gateway
 │   └── README.md                # Components, calibration and run instructions
-├── docs/informe/
+├── docs/report/
 │   ├── informe.tex              # Spanish project report (rubric) → informe.pdf
 │   └── slides.tex               # Spanish presentation (beamer) → slides.pdf
 ├── infra/database/

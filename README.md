@@ -19,7 +19,7 @@ Los une **MQTT**: el nodo publica su telemetría y el backend la recibe, la guar
 
 | Monitor del nodo: Fallout | Metal | Anime |
 |---|---|---|
-| ![Fallout](docs/capturas/dashboard-fallout.png) | ![Metal](docs/capturas/dashboard-metal.png) | ![Anime](docs/capturas/dashboard-anime.png) |
+| ![Fallout](docs/screenshots/dashboard-fallout.png) | ![Metal](docs/screenshots/dashboard-metal.png) | ![Anime](docs/screenshots/dashboard-anime.png) |
 
 ---
 
@@ -45,19 +45,19 @@ ccs/
 │   ├── openapi/          generador de la especificación para Watson Assistant
 │   └── vscode/           workspace de VS Code (plataforma + firmware)
 └── docs/
-    ├── proyecto/         perfil, proyecto redefinido, estados y escenarios, presupuesto, diagrama, enunciado
-    ├── plataforma/       documentación técnica del backend y el frontend
-    ├── informe/          informe en LaTeX (plantilla ACM)
-    └── capturas/
+    ├── project/          perfil, proyecto redefinido, estados y escenarios, presupuesto, diagrama, enunciado
+    ├── platform/         documentación técnica del backend y el frontend
+    ├── report/           informe en LaTeX (plantilla ACM)
+    └── screenshots/      capturas del monitor del nodo
 ```
 
 | Para… | Ver |
 |---|---|
 | Entender el nodo, sus estados y el formato MQTT | [`hardware/firmware/README.md`](hardware/firmware/README.md) |
 | La ingesta MQTT del backend | [`backend/app/services/mqtt_ingest.py`](backend/app/services/mqtt_ingest.py) |
-| El alcance y el plan del proyecto | [`docs/proyecto/PROYECTO_REDEFINIDO_CS5055.md`](docs/proyecto/PROYECTO_REDEFINIDO_CS5055.md) |
-| Los escenarios de prueba con su log esperado | [`docs/proyecto/ESTADOS_Y_ESCENARIOS_CS5055.md`](docs/proyecto/ESTADOS_Y_ESCENARIOS_CS5055.md) |
-| La plataforma en detalle (arquitectura, API, ML) | [`docs/plataforma/PLATAFORMA.md`](docs/plataforma/PLATAFORMA.md) y [`TECHNICAL_DOCUMENTATION.md`](docs/plataforma/TECHNICAL_DOCUMENTATION.md) |
+| El alcance y el plan del proyecto | [`docs/project/PROYECTO_REDEFINIDO_CS5055.md`](docs/project/PROYECTO_REDEFINIDO_CS5055.md) |
+| Los escenarios de prueba con su log esperado | [`docs/project/ESTADOS_Y_ESCENARIOS_CS5055.md`](docs/project/ESTADOS_Y_ESCENARIOS_CS5055.md) |
+| La plataforma en detalle (arquitectura, API, ML) | [`docs/platform/PLATAFORMA.md`](docs/platform/PLATAFORMA.md) y [`TECHNICAL_DOCUMENTATION.md`](docs/platform/TECHNICAL_DOCUMENTATION.md) |
 
 ## Requisitos
 
@@ -132,7 +132,7 @@ Cada lectura guardada trae **las dos decisiones**:
 - `node_state`: lo que decidió y ejecutó el **nodo** (`accion`, `motivo`, actuadores, bloqueo por histéresis).
 - `cognitive_action`: lo que decidió el **backend** con el modelo de IA o su heurística, en modo sombra.
 
-Esa comparación es la base de la figura de resultados del proyecto ([`docs/proyecto/PROYECTO_REDEFINIDO_CS5055.md`](docs/proyecto/PROYECTO_REDEFINIDO_CS5055.md), §1).
+Esa comparación es la base de la figura de resultados del proyecto ([`docs/project/PROYECTO_REDEFINIDO_CS5055.md`](docs/project/PROYECTO_REDEFINIDO_CS5055.md), §1).
 
 ## Probar solo el nodo, sin Docker
 

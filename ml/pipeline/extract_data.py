@@ -20,7 +20,7 @@ Target — target_temp_offset:
         people_load  = actual_occupancy * 0.05 * hour_weight
         solar_gain   = max(0, (temperature - 22) * 0.02)
     NOTE: this label is still synthetic; replace with real A/C feedback to let the
-    model exceed the heuristic (see docs/plataforma/TECHNICAL_DOCUMENTATION.md, To-Do / D2).
+    model exceed the heuristic (see docs/platform/TECHNICAL_DOCUMENTATION.md, To-Do / D2).
 
 Usage (run from project root):
     python ml/pipeline/extract_data.py
