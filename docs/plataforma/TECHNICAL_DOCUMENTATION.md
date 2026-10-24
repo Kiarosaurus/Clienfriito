@@ -630,7 +630,7 @@ python ml/seed_data/generate_dataset.py --dry-run   # solo JSON en output/, sin 
 python ml/seed_data/generate_dataset.py --wipe      # limpia sensor_readings e inserta
 ```
 
-> ✅ **Use with ml_pipeline:** the seeded `sensor_readings` carry the real plan in
+> ✅ **Use with ml/pipeline:** the seeded `sensor_readings` carry the real plan in
 > `cognitive_action.expected_occupancy` (which `extract_data.py` reads, D1) and the
 > exogenous `outdoor_temp`. See section 3.9 for how this lets the model beat the
 > heuristic baseline.

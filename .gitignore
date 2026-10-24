@@ -43,7 +43,7 @@ Thumbs.db
 *.sqlite3
 *.db
 
-# ML artifacts (generated — run ml_pipeline scripts to reproduce)
+# ML artifacts (generated — run ml/pipeline scripts to reproduce)
 backend/app/ml/
 ml/pipeline/data/
 
