@@ -27,7 +27,7 @@ motor cognitivo.
   (room, fecha).
 - **Clima Lima invierno:** frío, húmedo (garúa); indoor cerca de 20 °C. Cada lectura
   guarda `outdoor_temp` (de `climate_service.py`), driver exógeno del target ML (ver
-  TECHNICAL_DOCUMENTATION.md §3.9); el indoor se acopla parcialmente al exterior por la envolvente.
+  docs/plataforma/TECHNICAL_DOCUMENTATION.md §3.9); el indoor se acopla parcialmente al exterior por la envolvente.
 - **Timestamps:** naive en hora local de Lima; el backend compensa el desfase de las
   lecturas live (UTC) vía `LOCAL_UTC_OFFSET_HOURS`, tanto en los features del modelo
   como en el matching de `Schedule`.

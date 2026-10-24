@@ -5,16 +5,16 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../../LICENSE)
 
 > An IoT cognitive platform that turns raw climate-sensor telemetry into **predictive, occupancy-aware air-conditioning decisions** — pre-cooling rooms *before* they fill up, flagging CO emergencies in real time, and quantifying the energy it saves.
 
-> 🌐 **Live instance:** [kiarosaurus.me](https://kiarosaurus.me) · 📖 Technical deep-dive: [TECHNICAL_DOCUMENTATION.md](../TECHNICAL_DOCUMENTATION.md) · 📄 Project report (Spanish, rubric): [`informe/informe.pdf`](../informe/informe-proyecto-iot.pdf)
+> 🌐 **Live instance:** [kiarosaurus.me](https://kiarosaurus.me) · 📖 Technical deep-dive: [docs/plataforma/TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md) · 📄 Project report (Spanish, rubric): [`docs/informe/informe.pdf`](../informe/informe-proyecto-iot.pdf)
 
 <!-- Screenshots: drop PNGs into docs/assets/ and uncomment.
 | Global dashboard | Room detail | ROI report |
 |---|---|---|
-| ![Dashboard](assets/dashboard.png) | ![Room detail](assets/room-detail.png) | ![ROI](assets/roi.png) |
+| ![Dashboard](../assets/dashboard.png) | ![Room detail](../assets/room-detail.png) | ![ROI](../assets/roi.png) |
 -->
 
 ---
@@ -47,13 +47,13 @@ On top of the control loop, CCS provides:
 - **🔐 RBAC + JWT Auth** — Argon2 password hashing (self-healing admin seed), short-lived JWTs, and reservation-aware authorization (collaborators can only control devices in rooms they currently hold).
 - **🛡️ Resilient Startup** — PostgreSQL connection retries, idempotent in-code schema migrations (handling cases `create_all()` can't), and an auto-seeded admin account.
 - **🐳 Fully Containerized** — One `docker compose up` brings up PostgreSQL, MongoDB, the FastAPI backend, and the React frontend on an isolated bridge network with health checks.
-- **🔌 Physical Sensor Node** — An **Arduino UNO** (DHT11, MQ-135, MQ-7) streams JSON over Serial to a Python gateway ([`hardware/camara/sistema.py`](../hardware/camara/sistema.py)) that also counts room occupancy with the laptop camera (**MediaPipe Face Detection**, virtual-line crossing) and POSTs the merged reading to the live backend.
+- **🔌 Physical Sensor Node** — An **Arduino UNO** (DHT11, MQ-135, MQ-7) streams JSON over Serial to a Python gateway ([`hardware/camara/sistema.py`](../../hardware/camara/sistema.py)) that also counts room occupancy with the laptop camera (**MediaPipe Face Detection**, virtual-line crossing) and POSTs the merged reading to the live backend.
 
 ---
 
 ## Engineering Decisions
 
-The decisions that best explain the design — each with a full writeup in the [technical documentation](../TECHNICAL_DOCUMENTATION.md):
+The decisions that best explain the design — each with a full writeup in the [technical documentation](TECHNICAL_DOCUMENTATION.md):
 
 1. **The ML model must beat its own heuristic to ship** — chronological holdout plus mean and occupancy-only baselines; if `beats_baselines` is false, the API keeps running on the transparent heuristic instead (§3.9.3).
 2. **Feed-forward + feedback occupancy** — the reservation plan pre-cools ahead of arrival; CO₂ mass balance trims demand to measured reality, so a half-empty booked room stops being over-cooled (§3.7).
@@ -161,7 +161,7 @@ Climate-Cognitive-System/
 ├── hardware/
 │   ├── sistema.py               # Arduino UNO Serial → camera occupancy → HTTPS gateway
 │   └── README.md                # Components, calibration and run instructions
-├── informe/
+├── docs/informe/
 │   ├── informe.tex              # Spanish project report (rubric) → informe.pdf
 │   └── slides.tex               # Spanish presentation (beamer) → slides.pdf
 ├── infra/database/
@@ -346,7 +346,7 @@ curl -X POST http://localhost:8000/api/v1/chat/ \
 
 ## Physical Sensor Node
 
-The repo includes the client-side gateway for the real sensor node deployed in classroom **A403**: an **Arduino UNO** samples DHT11 (temperature/humidity), MQ-135 (CO₂ proxy) and MQ-7 (CO, raw ADC → ppm via datasheet curve) and streams JSON over USB-Serial every ~2 s; [`hardware/camara/sistema.py`](../hardware/camara/sistema.py) merges in a **camera-based occupancy count** (MediaPipe Face Detection, virtual-line crossing) and POSTs the reading to the backend. Wiring, calibration and run instructions: [`hardware/camara/README.md`](../hardware/camara/README.md).
+The repo includes the client-side gateway for the real sensor node deployed in classroom **A403**: an **Arduino UNO** samples DHT11 (temperature/humidity), MQ-135 (CO₂ proxy) and MQ-7 (CO, raw ADC → ppm via datasheet curve) and streams JSON over USB-Serial every ~2 s; [`hardware/camara/sistema.py`](../../hardware/camara/sistema.py) merges in a **camera-based occupancy count** (MediaPipe Face Detection, virtual-line crossing) and POSTs the reading to the backend. Wiring, calibration and run instructions: [`hardware/camara/README.md`](../../hardware/camara/README.md).
 
 ---
 
@@ -360,7 +360,7 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-The same suite plus the frontend type-check/build runs on every push via [GitHub Actions](../.github/workflows/ci.yml).
+The same suite plus the frontend type-check/build runs on every push via [GitHub Actions](../../.github/workflows/ci.yml).
 
 ---
 
@@ -376,7 +376,7 @@ python ml/pipeline/train_model.py     # → backend/app/ml/model.joblib
 
 - **`extract_data.py`** pulls `sensor_readings` from MongoDB, reads the **real plan** (`expected_occupancy`) from the stored `cognitive_action`, derives `actual_occupancy` from CO₂, attaches per-room physical metadata (`floor`, `volume_m3`, `ac_btu`) and the exogenous `outdoor_temp`, writes rows **in chronological order**, and augments with synthetic rows when real data is sparse.
 - **`train_model.py`** fits a `HistGradientBoostingRegressor` with **early stopping** on a **chronological holdout**, reports **baselines** (mean + occupancy-only heuristic) so ML only ships if it beats them, prints permutation feature importances, and exports a **bundle** `{model, features, room_id_map, metadata}` to `model.joblib`. On the next backend startup it is picked up automatically (ML mode).
-- Reproducible seed: **`ml/seed_data/generate_dataset.py`** builds a realistic ~2-month UTEC dataset (occupancy trend, CO₂-coherent gap, Lima climate) and loads Mongo + PostgreSQL — see [`ml/seed_data/DATASET_GUIDE.md`](../ml/seed_data/DATASET_GUIDE.md).
+- Reproducible seed: **`ml/seed_data/generate_dataset.py`** builds a realistic ~2-month UTEC dataset (occupancy trend, CO₂-coherent gap, Lima climate) and loads Mongo + PostgreSQL — see [`ml/seed_data/DATASET_GUIDE.md`](../../ml/seed_data/DATASET_GUIDE.md).
 
 ---
 
@@ -425,4 +425,4 @@ docker compose down -v --remove-orphans
 
 ## License
 
-Released under the [MIT License](../LICENSE).
+Released under the [MIT License](../../LICENSE).

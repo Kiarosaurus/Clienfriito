@@ -40,7 +40,7 @@ Haz clic en las piezas del circuito mientras corre la simulación:
 | Histéresis | Pasar de calor a frío (o al revés) en menos de 60 s | Cambio **retenido** con cuenta regresiva |
 | Alarma de CO | Potenciómetro inferior (MQ-7) a más de 50 ppm | **ALARMA CO**: ventilador al 100 %, buzzer, LED rojo |
 
-[`docs/ESTADOS_Y_ESCENARIOS_CS5055.md`](../../docs/ESTADOS_Y_ESCENARIOS_CS5055.md) detalla 15 escenarios con su log esperado.
+[`docs/proyecto/ESTADOS_Y_ESCENARIOS_CS5055.md`](../../docs/proyecto/ESTADOS_Y_ESCENARIOS_CS5055.md) detalla 15 escenarios con su log esperado.
 
 ## Estados y reglas
 

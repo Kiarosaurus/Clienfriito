@@ -2,8 +2,8 @@
 
 **Proyecto:** Climate Cognitive System (CCS)
 **Fecha de revisión:** 2026-09-01
-**Alcance:** exclusivamente la Sección 1 del documento `CS5055_Proyectos262.pdf` (1.1 Requisitos Técnicos Mínimos, 1.2 Proyectos No Aceptados, 1.3 Propuestas Sugeridas).
-**Base de evidencia:** código del repositorio en `main` (commit `51853cc`), `hardware/camara/sistema.py`, `hardware/camara/README.md`, `backend/app/`, e `informe/informe_ICC_Climate_system.pdf`.
+**Alcance:** exclusivamente la Sección 1 del documento `docs/proyecto/CS5055_Proyectos262.pdf` (1.1 Requisitos Técnicos Mínimos, 1.2 Proyectos No Aceptados, 1.3 Propuestas Sugeridas).
+**Base de evidencia:** código del repositorio en `main` (commit `51853cc`), `hardware/camara/sistema.py`, `hardware/camara/README.md`, `backend/app/`, e `docs/informe/informe_ICC_Climate_system.pdf`.
 
 ---
 
@@ -125,7 +125,7 @@ CCS no corresponde a ninguna de las 10 líneas sugeridas. Cae por tanto en **"Pr
 
 **Condición 1 — cumplir estrictamente los requisitos mínimos:** hoy no se cumple (§2.2, §2.3, §2.6). El adverbio *"estrictamente"* elimina el margen de interpretación.
 
-**Condición 2 — validación del Estado del Arte:** el único informe versionado es `informe/informe_ICC_Climate_system.pdf`, y presenta tres problemas serios frente a CS5055:
+**Condición 2 — validación del Estado del Arte:** el único informe versionado es `docs/informe/informe_ICC_Climate_system.pdf`, y presenta tres problemas serios frente a CS5055:
 
 1. **Es de otro curso.** El encabezado dice "Computación Cognitiva — UTEC", fechado 2 de julio de 2026. No es un entregable de CS5055 y su índice no sigue la estructura que exige el enunciado.
 2. **No tiene sección de Estado del Arte.** El índice va de "Problema identificado" a "Propuesta de solución" sin análisis de trabajos previos.

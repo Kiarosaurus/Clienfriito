@@ -36,8 +36,8 @@ Los une **MQTT**: el nodo publica su telemetría y el backend la recibe, la guar
 | [`ml/seed_data/`](ml/seed_data/) | Datos semilla: aulas (incluida A403), sensores, horarios y lecturas históricas |
 | [`ml/pipeline/`](ml/pipeline/) | Entrenamiento del modelo de carga térmica |
 | [`tools/broker-local/`](tools/broker-local/) | Broker MQTT liviano para probar solo el nodo, **sin Docker** |
-| [`docs/`](docs/) | Perfil del proyecto, estados y escenarios, presupuesto, diagrama y [documentación de la plataforma](docs/PLATAFORMA.md) |
-| [`informe/`](informe/) | Informe en LaTeX (plantilla ACM) |
+| [`docs/`](docs/) | Perfil del proyecto, estados y escenarios, presupuesto, diagrama y [documentación de la plataforma](docs/plataforma/PLATAFORMA.md) |
+| [`docs/informe/`](docs/informe/) | Informe en LaTeX (plantilla ACM) |
 
 ## Requisitos
 
@@ -112,7 +112,7 @@ Cada lectura guardada trae **las dos decisiones**:
 - `node_state`: lo que decidió y ejecutó el **nodo** (`accion`, `motivo`, actuadores, bloqueo por histéresis).
 - `cognitive_action`: lo que decidió el **backend** con el modelo de IA o su heurística, en modo sombra.
 
-Esa comparación es la base de la figura de resultados del proyecto ([`docs/PROYECTO_REDEFINIDO_CS5055.md`](docs/PROYECTO_REDEFINIDO_CS5055.md), §1).
+Esa comparación es la base de la figura de resultados del proyecto ([`docs/proyecto/PROYECTO_REDEFINIDO_CS5055.md`](docs/proyecto/PROYECTO_REDEFINIDO_CS5055.md), §1).
 
 ## Probar solo el nodo, sin Docker
 

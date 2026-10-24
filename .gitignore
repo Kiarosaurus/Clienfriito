@@ -51,28 +51,28 @@ ml/pipeline/data/
 ml/seed_data/output/
 
 # LaTeX build artifacts (informe.pdf is kept as the deliverable)
-informe/*.aux
-informe/*.log
-informe/*.out
-informe/*.toc
-informe/*.lof
-informe/*.lot
-informe/*.bbl
-informe/*.blg
-informe/*.bcf
-informe/*.run.xml
-informe/*.fls
-informe/*.fdb_latexmk
-informe/*.synctex.gz
-informe/*.synctex
-informe/*.nav
-informe/*.snm
-informe/*.vrb
-informe/*.xdv
-informe/*.idx
-informe/*.ind
-informe/*.ilg
-informe/*.auxlock
+docs/informe/*.aux
+docs/informe/*.log
+docs/informe/*.out
+docs/informe/*.toc
+docs/informe/*.lof
+docs/informe/*.lot
+docs/informe/*.bbl
+docs/informe/*.blg
+docs/informe/*.bcf
+docs/informe/*.run.xml
+docs/informe/*.fls
+docs/informe/*.fdb_latexmk
+docs/informe/*.synctex.gz
+docs/informe/*.synctex
+docs/informe/*.nav
+docs/informe/*.snm
+docs/informe/*.vrb
+docs/informe/*.xdv
+docs/informe/*.idx
+docs/informe/*.ind
+docs/informe/*.ilg
+docs/informe/*.auxlock
 
 # PlatformIO (firmware del ESP32)
 .pio/
