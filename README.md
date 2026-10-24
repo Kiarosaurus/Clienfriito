@@ -25,19 +25,36 @@ Los une **MQTT**: el nodo publica su telemetría y el backend la recibe, la guar
 
 ## Qué hay en el repositorio
 
-| Carpeta | Qué es |
+```
+ccs/
+├── backend/              API FastAPI (ingesta HTTP y MQTT, modelo de IA, reportes)
+├── frontend/             dashboard React; el monitor del nodo está en public/monitor/
+├── hardware/
+│   ├── firmware/         firmware del ESP32 y circuito de Wokwi
+│   └── camara/           puerta de enlace anterior (Arduino UNO) y conteo con cámara
+├── infra/
+│   ├── mqtt/             configuración de Mosquitto
+│   └── database/         scripts de inicio de PostgreSQL y MongoDB
+├── ml/
+│   ├── pipeline/         entrenamiento del modelo de carga térmica
+│   └── seed_data/        datos semilla: aulas (incluida A403), sensores, horarios y lecturas
+├── tools/
+│   ├── broker-local/     broker MQTT liviano para probar solo el nodo, sin Docker
+│   └── openapi/          generador de la especificación para Watson Assistant
+└── docs/
+    ├── proyecto/         perfil, proyecto redefinido, estados y escenarios, presupuesto, diagrama, enunciado
+    ├── plataforma/       documentación técnica del backend y el frontend
+    ├── informe/          informe en LaTeX (plantilla ACM)
+    └── capturas/
+```
+
+| Para… | Ver |
 |---|---|
-| [`hardware/firmware/`](hardware/firmware/) | **Firmware del ESP32** y circuito de Wokwi ([guía del nodo](hardware/firmware/README.md)) |
-| [`hardware/camara/sistema.py`](hardware/camara/sistema.py) | Puerta de enlace anterior (Arduino UNO + cámara); queda para el conteo con cámara |
-| [`infra/mqtt/`](infra/mqtt/) | Configuración de **Mosquitto** |
-| [`backend/`](backend/) | API FastAPI. La ingesta MQTT está en [`app/services/mqtt_ingest.py`](backend/app/services/mqtt_ingest.py) |
-| [`frontend/`](frontend/) | Dashboard React. El monitor del nodo está en [`public/monitor/`](frontend/public/monitor/index.html) |
-| [`infra/database/`](infra/database/) | Scripts de inicio de PostgreSQL y MongoDB |
-| [`ml/seed_data/`](ml/seed_data/) | Datos semilla: aulas (incluida A403), sensores, horarios y lecturas históricas |
-| [`ml/pipeline/`](ml/pipeline/) | Entrenamiento del modelo de carga térmica |
-| [`tools/broker-local/`](tools/broker-local/) | Broker MQTT liviano para probar solo el nodo, **sin Docker** |
-| [`docs/`](docs/) | Perfil del proyecto, estados y escenarios, presupuesto, diagrama y [documentación de la plataforma](docs/plataforma/PLATAFORMA.md) |
-| [`docs/informe/`](docs/informe/) | Informe en LaTeX (plantilla ACM) |
+| Entender el nodo, sus estados y el formato MQTT | [`hardware/firmware/README.md`](hardware/firmware/README.md) |
+| La ingesta MQTT del backend | [`backend/app/services/mqtt_ingest.py`](backend/app/services/mqtt_ingest.py) |
+| El alcance y el plan del proyecto | [`docs/proyecto/PROYECTO_REDEFINIDO_CS5055.md`](docs/proyecto/PROYECTO_REDEFINIDO_CS5055.md) |
+| Los escenarios de prueba con su log esperado | [`docs/proyecto/ESTADOS_Y_ESCENARIOS_CS5055.md`](docs/proyecto/ESTADOS_Y_ESCENARIOS_CS5055.md) |
+| La plataforma en detalle (arquitectura, API, ML) | [`docs/plataforma/PLATAFORMA.md`](docs/plataforma/PLATAFORMA.md) y [`TECHNICAL_DOCUMENTATION.md`](docs/plataforma/TECHNICAL_DOCUMENTATION.md) |
 
 ## Requisitos
 
