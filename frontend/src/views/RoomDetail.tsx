@@ -75,6 +75,10 @@ interface TimelineRow {
 
 type Tab = 'actual' | 'historial' | 'config'
 
+interface WeeklySlot { day_of_week: number; start_time: string; end_time: string; expected_people: number }
+interface RoomReservation { id: number; room_id: string; username?: string; start_time: string; end_time: string; expected_occupancy: number }
+const WEEKDAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+
 const POLL_MS = 5_000
 const READINGS_LIMIT = 200
 // Recent charts show a time window ending at the latest reading, so old sessions
@@ -235,6 +239,8 @@ export default function RoomDetail() {
   const [readings, setReadings] = useState<StoredReading[]>([])
   const [devices, setDevices] = useState<SensorDevice[]>([])
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null)
+  const [schedules, setSchedules] = useState<WeeklySlot[]>([])
+  const [upcoming, setUpcoming] = useState<RoomReservation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [controlError, setControlError] = useState<string | null>(null)
@@ -249,11 +255,20 @@ export default function RoomDetail() {
       api.get<RoomInfo>(`/admin/rooms/${id}`),
       api.get<SensorDevice[]>('/admin/devices').catch(() => ({ data: [] as SensorDevice[] })),
       api.get<TimelineResponse>(`/admin/rooms/${id}/timeline`).catch(() => ({ data: null })),
+      api.get<WeeklySlot[]>(`/admin/rooms/${id}/schedules`).catch(() => ({ data: [] as WeeklySlot[] })),
+      // Guests cannot list reservations (403): they simply see none.
+      api.get<RoomReservation[]>('/admin/reservations').catch(() => ({ data: [] as RoomReservation[] })),
     ])
-      .then(([r, d, t]) => {
+      .then(([r, d, t, sc, rs]) => {
         setRoom(r.data)
         setDevices((d.data ?? []).filter(x => x.room_id === id))
         setTimeline(t.data ?? null)
+        setSchedules(sc.data ?? [])
+        const nowMs = Date.now()
+        setUpcoming((rs.data ?? [])
+          .filter(x => String(x.room_id) === id && new Date(x.end_time).getTime() > nowMs)
+          .sort((a, b) => a.start_time.localeCompare(b.start_time))
+          .slice(0, 5))
       })
       .catch(err => setError(getApiErrorDetail(err) ?? 'No se pudo cargar el aula.'))
       .finally(() => setLoading(false))
@@ -615,6 +630,50 @@ export default function RoomDetail() {
       {tab === 'config' && <>
         {isGuest && <p className="text-xs text-amber-300">Solo lectura: tu rol no puede cambiar la configuración.</p>}
         {controlError && <Card className="border-red-500/40 text-sm text-red-300">{controlError}</Card>}
+
+        {/* Where expected occupancy comes from: weekly classes + one-off reservations */}
+        <Card
+          title="Ocupación programada"
+          aside={!isGuest && <Link to="/reservations" className="text-blue-300 hover:underline">Gestionar reservas</Link>}
+        >
+          <p className="mb-3 text-xs text-slate-400">
+            El sistema pre-enfría el aula según las personas esperadas: primero mira las reservas y, si no hay, el horario semanal.
+          </p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <p className="mb-1 text-xs text-slate-400">Horario semanal</p>
+              {schedules.length === 0 ? <p className="text-sm text-slate-500">Sin clases fijas.</p> : (
+                <ul className="divide-y divide-slate-800 rounded-lg border border-slate-800 text-sm">
+                  {schedules.map((sl, i) => (
+                    <li key={i} className="flex justify-between gap-2 px-3 py-1.5">
+                      <span className="text-slate-200">{WEEKDAYS[sl.day_of_week] ?? sl.day_of_week} <span className="tabular-nums text-slate-400">{sl.start_time}–{sl.end_time}</span></span>
+                      <span className="text-xs tabular-nums text-slate-400">{sl.expected_people} personas</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <p className="mb-1 text-xs text-slate-400">Próximas reservas</p>
+              {upcoming.length === 0 ? <p className="text-sm text-slate-500">{isGuest ? 'Tu rol no puede ver reservas.' : 'Sin reservas próximas.'}</p> : (
+                <ul className="divide-y divide-slate-800 rounded-lg border border-slate-800 text-sm">
+                  {upcoming.map(r => {
+                    const s = new Date(r.start_time), e = new Date(r.end_time)
+                    return (
+                      <li key={r.id} className="flex justify-between gap-2 px-3 py-1.5">
+                        <span className="text-slate-200">
+                          {s.toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' })}{' '}
+                          <span className="tabular-nums text-slate-400">{s.toTimeString().slice(0, 5)}–{e.toTimeString().slice(0, 5)}</span>
+                        </span>
+                        <span className="text-xs tabular-nums text-slate-400">{r.expected_occupancy} personas · {r.username ?? '—'}</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
+        </Card>
 
         <Card title="Política de control" aside={policySaving && <RefreshCw size={12} className="animate-spin" />}>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
