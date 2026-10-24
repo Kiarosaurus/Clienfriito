@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
+from app.config import LOCAL_UTC_OFFSET_HOURS
 from app.core.timeutils import ensure_local, to_local
 from app.database import get_db
 from app.database_sql import get_db_sql
@@ -764,6 +765,100 @@ def list_reservations(
         }
         for r in reservations
     ]
+
+
+class ReservationOccupancyOut(BaseModel):
+    reservation_id: int
+    samples: int                       # readings found in the reservation window
+    actual_avg: Optional[float] = None # mean CO2-inferred headcount
+    actual_peak: Optional[int] = None  # max CO2-inferred headcount
+
+
+@router.get("/reservations/occupancy", response_model=List[ReservationOccupancyOut])
+async def reservations_occupancy(
+    ids: str,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    db_sql: Session = Depends(get_db_sql),
+    current_user: User = Depends(get_current_user),
+):
+    """Measured occupancy during each reservation (expected vs actual, §6.4).
+
+    `ids` is a comma-separated list (max 50) so a page of reservations costs one
+    request. Reservations are naive LOCAL times; readings are naive UTC strings.
+    """
+    _require_admin_or_collaborator(current_user)
+    try:
+        wanted = [int(x) for x in ids.split(",") if x.strip()][:50]
+    except ValueError:
+        raise HTTPException(status_code=422, detail="ids must be comma-separated integers.")
+
+    def _load():
+        res = db_sql.query(Reservation).filter(Reservation.id.in_(wanted)).all()
+        devices = db_sql.query(SensorDevice.id, SensorDevice.room_id).filter(
+            SensorDevice.room_id.in_({r.room_id for r in res})
+        ).all()
+        return res, devices
+
+    reservations, devices = await run_in_threadpool(_load)
+    sensors_of: dict[str, list[str]] = {}
+    for sensor_id, room_id in devices:
+        sensors_of.setdefault(room_id, []).append(sensor_id)
+
+    fmt = "%Y-%m-%dT%H:%M:%S.%f"
+    to_utc = lambda dt: (dt - timedelta(hours=LOCAL_UTC_OFFSET_HOURS)).strftime(fmt)
+    out = []
+    for r in reservations:
+        sensors = sensors_of.get(r.room_id, [])
+        stats = []
+        if sensors:
+            stats = await db["sensor_readings"].aggregate([
+                {"$match": {
+                    "sensor_id": {"$in": sensors},
+                    "is_simulated": {"$ne": True},
+                    "timestamp": {"$gte": to_utc(r.start_time), "$lt": to_utc(r.end_time)},
+                    "cognitive_action.actual_occupancy": {"$ne": None},
+                }},
+                {"$group": {
+                    "_id": None,
+                    "n": {"$sum": 1},
+                    "avg": {"$avg": "$cognitive_action.actual_occupancy"},
+                    "peak": {"$max": "$cognitive_action.actual_occupancy"},
+                }},
+            ]).to_list(length=1)
+        g = stats[0] if stats else None
+        out.append({
+            "reservation_id": r.id,
+            "samples": g["n"] if g else 0,
+            "actual_avg": round(g["avg"], 1) if g and g["avg"] is not None else None,
+            "actual_peak": int(g["peak"]) if g and g["peak"] is not None else None,
+        })
+    return out
+
+
+class ScheduleOut(BaseModel):
+    day_of_week: int   # 0=Monday … 6=Sunday
+    start_time: str    # HH:MM local
+    end_time: str
+    expected_people: int
+
+
+@router.get("/rooms/{room_id}/schedules", response_model=List[ScheduleOut])
+def room_schedules(
+    room_id: str,
+    db: Session = Depends(get_db_sql),
+    current_user: User = Depends(get_current_user),
+):
+    """Weekly class schedule of a room: the other source of expected occupancy."""
+    rows = (
+        db.query(Schedule).filter(Schedule.room_id == room_id)
+        .order_by(Schedule.day_of_week, Schedule.start_time).all()
+    )
+    return [{
+        "day_of_week": s.day_of_week,
+        "start_time": s.start_time.strftime("%H:%M"),
+        "end_time": s.end_time.strftime("%H:%M"),
+        "expected_people": s.expected_people,
+    } for s in rows]
 
 
 # ANTES: @router.post("/reservations", status_code=201)
