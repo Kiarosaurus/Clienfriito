@@ -73,3 +73,6 @@ informe/*.idx
 informe/*.ind
 informe/*.ilg
 informe/*.auxlock
+
+# PlatformIO (firmware del ESP32)
+.pio/

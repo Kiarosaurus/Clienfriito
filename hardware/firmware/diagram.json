@@ -1,0 +1,316 @@
+{
+  "version": 1,
+  "author": "Equipo Calienfriito \u2014 CS5055",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-esp32-devkit-v1",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht1",
+      "top": -140,
+      "left": -260,
+      "attrs": {
+        "temperature": "26",
+        "humidity": "55"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_mq135",
+      "top": -20,
+      "left": -320,
+      "attrs": {
+        "label": "MQ-135 (proxy CO2/ocupacion)"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_mq7",
+      "top": 100,
+      "left": -320,
+      "attrs": {
+        "label": "MQ-7 (proxy CO ppm)"
+      }
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "bz1",
+      "top": -140,
+      "left": 260,
+      "attrs": {
+        "volume": "0.1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_r",
+      "top": 0,
+      "left": 300,
+      "attrs": {
+        "color": "red"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_g",
+      "top": 40,
+      "left": 300,
+      "attrs": {
+        "color": "green"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_b",
+      "top": 80,
+      "left": 300,
+      "attrs": {
+        "color": "blue"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_fan",
+      "top": 140,
+      "left": 300,
+      "attrs": {
+        "color": "yellow",
+        "label": "ventilador (PWM)"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_r",
+      "top": 0,
+      "left": 360,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_g",
+      "top": 40,
+      "left": 360,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_b",
+      "top": 80,
+      "left": 360,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_fan",
+      "top": 140,
+      "left": 360,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_heat",
+      "top": 200,
+      "left": 300,
+      "attrs": {
+        "color": "orange",
+        "label": "calefactor PTC"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_heat",
+      "top": 200,
+      "left": 360,
+      "attrs": {
+        "value": "220"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "esp:TX0",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX0",
+      "$serialMonitor:TX",
+      "",
+      []
+    ],
+    [
+      "dht1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "dht1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "dht1:SDA",
+      "esp:D4",
+      "green",
+      []
+    ],
+    [
+      "pot_mq135:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_mq135:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot_mq135:SIG",
+      "esp:D34",
+      "green",
+      []
+    ],
+    [
+      "pot_mq7:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_mq7:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot_mq7:SIG",
+      "esp:D35",
+      "green",
+      []
+    ],
+    [
+      "bz1:1",
+      "esp:D26",
+      "green",
+      []
+    ],
+    [
+      "bz1:2",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "led_r:A",
+      "r_r:1",
+      "green",
+      []
+    ],
+    [
+      "r_r:2",
+      "esp:D27",
+      "green",
+      []
+    ],
+    [
+      "led_r:C",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "led_g:A",
+      "r_g:1",
+      "green",
+      []
+    ],
+    [
+      "r_g:2",
+      "esp:D14",
+      "green",
+      []
+    ],
+    [
+      "led_g:C",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "led_b:A",
+      "r_b:1",
+      "green",
+      []
+    ],
+    [
+      "r_b:2",
+      "esp:D13",
+      "green",
+      []
+    ],
+    [
+      "led_b:C",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "led_fan:A",
+      "r_fan:1",
+      "green",
+      []
+    ],
+    [
+      "r_fan:2",
+      "esp:D25",
+      "green",
+      []
+    ],
+    [
+      "led_fan:C",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "led_heat:A",
+      "r_heat:1",
+      "orange",
+      []
+    ],
+    [
+      "r_heat:2",
+      "esp:D32",
+      "orange",
+      []
+    ],
+    [
+      "led_heat:C",
+      "esp:GND.1",
+      "black",
+      []
+    ]
+  ],
+  "serialMonitor": {
+    "display": "always"
+  }
+}
