@@ -2,5 +2,11 @@
   "folders": [
     { "name": "ccs (plataforma)", "path": "../.." },
     { "name": "firmware ESP32 (Wokwi)", "path": "../../hardware/firmware" }
-  ]
+  ],
+  "settings": {
+    // Antes en pyrightconfig.json: los scripts de ml/ importan el paquete `app` de backend/.
+    // Las rutas relativas se resuelven desde cada carpeta del workspace.
+    "python.analysis.extraPaths": ["backend"],
+    "python.analysis.diagnosticSeverityOverrides": { "reportMissingImports": "warning" }
+  }
 }

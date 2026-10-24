@@ -1,4 +1,0 @@
-{
-  "extraPaths": ["backend"],
-  "reportMissingImports": "warning"
-}
