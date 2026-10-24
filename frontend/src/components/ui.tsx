@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
+import { X } from 'lucide-react'
 import type { SensorLevel } from '../utils/sensorColors'
 
 // Shared visual system (see .claude/CLAUDE.md, design rules).
@@ -96,6 +97,34 @@ export function Kpi({ label, value, unit, tone, status, hint }: {
         {value}
         {unit && value !== '—' && <span className="ml-1 text-sm font-normal text-slate-400">{unit}</span>}
       </p>
+    </div>
+  )
+}
+
+// Modal dialog: title bar, body and footer. Escape or clicking outside closes it.
+export function Dialog({ title, onClose, children, footer, size = 'md' }: {
+  title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; size?: 'sm' | 'md'
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4" onMouseDown={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={e => e.stopPropagation()}
+        className={`surface w-full rounded-xl shadow-2xl ${size === 'sm' ? 'max-w-sm' : 'max-w-lg'}`}
+      >
+        <header className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+          <h2 className="section-title">{title}</h2>
+          <button onClick={onClose} className="btn btn-ghost -mr-2 px-2 py-1" aria-label="Cerrar"><X size={16} /></button>
+        </header>
+        <div className="p-4">{children}</div>
+        {footer && <footer className="flex items-center gap-2 border-t border-slate-800 px-4 py-3">{footer}</footer>}
+      </div>
     </div>
   )
 }
