@@ -1,5 +1,5 @@
-import { useEffect, type ReactNode } from 'react'
-import { X } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import type { SensorLevel } from '../utils/sensorColors'
 
 // Shared visual system (see .claude/CLAUDE.md, design rules).
@@ -125,6 +125,36 @@ export function Dialog({ title, onClose, children, footer, size = 'md' }: {
         <div className="p-4">{children}</div>
         {footer && <footer className="flex items-center gap-2 border-t border-slate-800 px-4 py-3">{footer}</footer>}
       </div>
+    </div>
+  )
+}
+
+// ── Pagination ────────────────────────────────────────────────────────────────
+// Long lists are paged (design rule 11). Resets to page 1 when the list changes size.
+export function usePage<T>(items: T[], size = 25) {
+  const [page, setPage] = useState(1)
+  const pages = Math.max(1, Math.ceil(items.length / size))
+  useEffect(() => { setPage(1) }, [items.length])
+  const current = Math.min(page, pages)
+  return { rows: items.slice((current - 1) * size, current * size), page: current, pages, setPage, total: items.length, size }
+}
+
+export function Pagination({ page, pages, setPage, total, size, noun = 'elementos' }: {
+  page: number; pages: number; setPage: (p: number) => void; total: number; size: number; noun?: string
+}) {
+  if (total === 0) return null
+  const from = (page - 1) * size + 1
+  const to = Math.min(page * size, total)
+  return (
+    <div className="flex items-center justify-between gap-2 pt-3 text-xs text-slate-400">
+      <span>{from}–{to} de {total} {noun}</span>
+      {pages > 1 && (
+        <span className="flex items-center gap-1">
+          <button className="btn btn-ghost px-2 py-1" onClick={() => setPage(page - 1)} disabled={page <= 1} aria-label="Página anterior"><ChevronLeft size={14} /></button>
+          <span className="tabular-nums">{page} / {pages}</span>
+          <button className="btn btn-ghost px-2 py-1" onClick={() => setPage(page + 1)} disabled={page >= pages} aria-label="Página siguiente"><ChevronRight size={14} /></button>
+        </span>
+      )}
     </div>
   )
 }

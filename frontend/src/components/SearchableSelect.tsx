@@ -1,14 +1,16 @@
-import { useState, useEffect, useRef, useId } from 'react'
+import { Fragment, useState, useEffect, useRef, useId } from 'react'
 import { Search, X } from 'lucide-react'
 
 export interface SelectOption {
   value: string
   label: string
+  hint?: string    // secondary text on the right (e.g. capacity)
+  group?: string   // options sharing a group get a header (e.g. "Edificio M · Piso 6")
 }
 
 // Approx rendered height of one option row (px-3 py-2.5 text-sm + 1px divider),
 // used to cap the popover at `maxVisibleItems` rows before it scrolls.
-const ITEM_HEIGHT = 41
+const ITEM_HEIGHT = 37
 
 interface Props {
   options: SelectOption[]
@@ -44,7 +46,7 @@ export default function SearchableSelect({
   }, [value])
 
   const filtered = inputText.trim()
-    ? options.filter(o => o.label.toLowerCase().includes(inputText.toLowerCase()))
+    ? options.filter(o => `${o.label} ${o.group ?? ''}`.toLowerCase().includes(inputText.toLowerCase()))
     : options
 
   // Keep the highlighted option visible when navigating with the keyboard.
@@ -146,7 +148,7 @@ export default function SearchableSelect({
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${inputPl} pr-8 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition placeholder-slate-500`}
+          className={`field ${inputPl} pr-8`}
         />
 
         {value && (
@@ -167,7 +169,10 @@ export default function SearchableSelect({
             style={{ maxHeight: `${maxVisibleItems * ITEM_HEIGHT}px` }}
             className="surface absolute z-50 left-0 right-0 mt-1 shadow-2xl overflow-y-auto overscroll-contain"
           >
-            {filtered.map((opt, idx) => (
+            {filtered.map((opt, idx) => (<Fragment key={opt.value}>
+              {opt.group && opt.group !== filtered[idx - 1]?.group && (
+                <li key={`g-${opt.group}`} role="presentation" className="sticky top-0 bg-slate-900 px-3 pb-1 pt-2 text-xs text-slate-500">{opt.group}</li>
+              )}
               <li
                 key={opt.value}
                 id={`${listId}-opt-${idx}`}
@@ -175,7 +180,7 @@ export default function SearchableSelect({
                 aria-selected={opt.value === value}
                 onMouseDown={() => handleSelect(opt)}
                 onMouseEnter={() => setHighlighted(idx)}
-                className={`px-3 py-2.5 text-sm cursor-pointer border-b border-slate-700/50 last:border-0 transition-colors ${
+                className={`flex items-center justify-between gap-2 px-3 py-2 text-sm cursor-pointer transition-colors ${
                   opt.value === value
                     ? 'bg-blue-600/20 text-blue-200'
                     : idx === highlighted
@@ -183,9 +188,10 @@ export default function SearchableSelect({
                       : 'text-slate-200 hover:bg-slate-800'
                 }`}
               >
-                {opt.label}
+                <span className="truncate">{opt.label}</span>
+                {opt.hint && <span className="shrink-0 text-xs text-slate-500">{opt.hint}</span>}
               </li>
-            ))}
+            </Fragment>))}
           </ul>
         )}
 
