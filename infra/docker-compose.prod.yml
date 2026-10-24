@@ -1,9 +1,12 @@
 # Production overlay for the kiarosaurus.me VM — contains NO secrets.
 #
 # Run with both files:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.yml -f infra/docker-compose.prod.yml up -d --build
 # or set once in the VM's .env and use plain `docker compose ...`:
-#   COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+#   COMPOSE_FILE=docker-compose.yml:infra/docker-compose.prod.yml
+#
+# Relative paths below (./frontend/...) resolve from the FIRST compose file's
+# directory (the repo root), not from infra/.
 #
 # Only the frontend differs in production: TLS terminates in its nginx, so it
 # publishes 80/443 (instead of dev's 3000) and mounts the Let's Encrypt certs
