@@ -9,6 +9,7 @@ import api, { getApiErrorDetail } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import type { StoredReading } from '../types'
 import { locationLabel } from '../utils/rooms'
+import StrategyComparison from '../components/StrategyComparison'
 import { levelTemp, levelHumedad, levelCO2, levelCO, getStatusLabel } from '../utils/sensorColors'
 import {
   Card, Chip, Kpi, Tabs, LEVEL_TONE, NODE_STATE, AI_STATE, MODEL_LABEL, LIVE_SECONDS, NODE_SETPOINT,
@@ -474,9 +475,6 @@ export default function RoomDetail() {
         {/* Node vs AI */}
         <Card
           title="Nodo vs IA"
-          aside={comparison.pct != null && (
-            <span>Coinciden en <b className="text-slate-100">{comparison.pct}%</b> de {comparison.total} lecturas</span>
-          )}
         >
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
@@ -516,11 +514,13 @@ export default function RoomDetail() {
                 ))}
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                Una barra por lectura, de la más antigua a la más reciente. Las ámbar son lecturas en que el nodo y la IA no coinciden
+                Últimas {comparison.pairs.length} lecturas, de la más antigua a la más reciente. Ámbar: el nodo y la IA no coinciden
                 en si enfriar. La IA no controla el calefactor, así que «Calentando» cuenta como «no enfriar».
               </p>
             </div>
           )}
+
+          {hasNode && id && <StrategyComparison roomId={id} />}
         </Card>
 
         {/* One chart per magnitude */}
