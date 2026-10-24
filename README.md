@@ -95,7 +95,7 @@ Más detalles en [`ml/seed_data/DATASET_GUIDE.md`](ml/seed_data/DATASET_GUIDE.md
 
 ### 3. Compilar y simular el nodo
 
-1. En VS Code abre el workspace **`ccs.code-workspace`** (File → Open Workspace from File).
+1. En VS Code abre el workspace **`tools/vscode/ccs.code-workspace`** (File → Open Workspace from File).
    Incluye `hardware/firmware` como carpeta propia, que es lo que necesitan PlatformIO y Wokwi.
 2. Compila el firmware con el **✓ (Build)** de PlatformIO (o `pio run` dentro de `hardware/firmware`).
 3. Abre `hardware/firmware/diagram.json` y pulsa **▶** (o `Cmd/Ctrl + Shift + P` → *Wokwi: Start Simulator*).

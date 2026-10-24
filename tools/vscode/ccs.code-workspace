@@ -1,0 +1,6 @@
+{
+  "folders": [
+    { "name": "ccs (plataforma)", "path": "../.." },
+    { "name": "firmware ESP32 (Wokwi)", "path": "../../hardware/firmware" }
+  ]
+}

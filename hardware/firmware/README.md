@@ -16,7 +16,7 @@ Lee DHT22, MQ-135 y MQ-7, decide **en el propio nodo** qué hacer con el ventila
 
 ## Compilar y simular
 
-1. Abre **esta carpeta** (`hardware/firmware`) en VS Code, o el workspace `ccs.code-workspace` de la raíz.
+1. Abre **esta carpeta** (`hardware/firmware`) en VS Code, o el workspace `tools/vscode/ccs.code-workspace`.
    PlatformIO y Wokwi necesitan `platformio.ini` y `wokwi.toml` en la raíz de lo que abres.
 2. Compila con el **✓ (Build)** de PlatformIO o `pio run`.
 3. Abre `diagram.json` y pulsa **▶** (o `Cmd/Ctrl + Shift + P` → *Wokwi: Start Simulator*).
