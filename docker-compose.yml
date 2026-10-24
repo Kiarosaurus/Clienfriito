@@ -27,8 +27,9 @@ services:
     container_name: ccs_mongo
     restart: unless-stopped
     ports:
-      # Loopback-only — same rationale as postgres.
-      - "127.0.0.1:27017:27017"
+      # Loopback-only — same rationale as postgres. MONGO_HOST_PORT lets you pick
+      # another host port when a local MongoDB already uses 27017.
+      - "127.0.0.1:${MONGO_HOST_PORT:-27017}:27017"
     volumes:
       - mongo_data:/data/db
       - ./infra/database/mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro
