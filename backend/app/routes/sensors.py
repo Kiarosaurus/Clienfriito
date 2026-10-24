@@ -126,6 +126,50 @@ async def list_readings(
     return docs
 
 
+class RoomLatestOut(BaseModel):
+    room_id: str
+    reading: Optional[SensorReadingOut] = None
+
+
+@router.get("/latest", response_model=List[RoomLatestOut])
+async def latest_by_room(
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    db_sql: Session = Depends(get_db_sql),
+    current_user: User = Depends(get_current_user),
+):
+    """Latest reading of every room in one response (one aggregation, not one request per room).
+
+    Rooms without sensors or without readings are included with reading=None.
+    """
+    def _load():
+        rooms = [r.id for r in db_sql.query(Room.id).all()]
+        devices = db_sql.query(SensorDevice.id, SensorDevice.room_id).filter(SensorDevice.room_id.isnot(None)).all()
+        return rooms, devices
+
+    rooms, devices = await run_in_threadpool(_load)
+    room_of = {sensor_id: room_id for sensor_id, room_id in devices}
+    pipeline = [
+        {"$match": {"sensor_id": {"$in": list(room_of)}}},
+        {"$sort": {"sensor_id": 1, "timestamp": -1}},   # served by the (sensor_id, timestamp) index
+        {"$group": {"_id": "$sensor_id", "doc": {"$first": "$$ROOT"}}},
+    ]
+    try:
+        groups = await db["sensor_readings"].aggregate(pipeline).to_list(length=None)
+    except PyMongoError as exc:
+        logger.error("MongoDB unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+
+    latest: dict[str, dict] = {}
+    for g in groups:
+        doc = g["doc"]
+        doc.pop("_id", None)
+        room_id = room_of.get(g["_id"])
+        # A room may have several sensors: keep its most recent reading.
+        if room_id and (room_id not in latest or doc["timestamp"] > latest[room_id]["timestamp"]):
+            latest[room_id] = doc
+    return [{"room_id": r, "reading": latest.get(r)} for r in rooms]
+
+
 @router.delete("/simulated", status_code=200, responses={403: {"model": ErrorDetail}})
 async def purge_simulated_readings(
     db: AsyncIOMotorDatabase = Depends(get_db),
