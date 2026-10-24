@@ -295,7 +295,7 @@ def insert_postgres() -> None:
             # store an unusable sentinel and break the seed user's login.
             from app.core.security import hash_password
             prof = User(username="profesor_utec",
-                        hashed_password=hash_password("changeme123"),
+                        hashed_password=hash_password("profesor_utec"),
                         role="collaborator", status="active")
             s.add(prof)
             s.flush()

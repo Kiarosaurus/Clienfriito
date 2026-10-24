@@ -55,7 +55,7 @@ schedules re-escritos, reservas con check de existencia).
 
 > Reset previo recomendado: `docker compose down -v && docker compose up -d` (re-ejecuta
 > los init scripts), luego correr el generador. El usuario `profesor_utec`
-> (password `changeme123`, **solo para dev/seed** — no usar en despliegues públicos)
+> (password `profesor_utec`, **solo para dev/seed** — no usar en despliegues públicos)
 > se crea para asociar las reservas.
 
 ## Fuente única de constantes
