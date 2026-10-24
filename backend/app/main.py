@@ -97,6 +97,19 @@ def _run_migrations(engine, text):
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR NOT NULL DEFAULT 'guest'",
         # rooms: per-room cognitive policy (auto | heuristic | manual)
         "ALTER TABLE rooms ADD COLUMN IF NOT EXISTS control_policy VARCHAR NOT NULL DEFAULT 'auto'",
+        # rooms: location (building → floor), used to group rooms in the UI
+        "ALTER TABLE rooms ADD COLUMN IF NOT EXISTS building VARCHAR",
+        "ALTER TABLE rooms ADD COLUMN IF NOT EXISTS floor INTEGER",
+        "CREATE INDEX IF NOT EXISTS ix_rooms_building ON rooms (building)",
+        # One-time backfill for rooms created before these columns existed, from the
+        # UTEC code convention "<building><floor><nn>" (A403 → A, 4; M1001 → M, 10).
+        # Only touches rows still without a building; new rooms set it explicitly.
+        """
+        UPDATE rooms
+        SET building = substring(id from '^([A-Za-z]+)[0-9]{3,}$'),
+            floor = (substring(id from '^[A-Za-z]+([0-9]+)[0-9]{2}$'))::int
+        WHERE building IS NULL AND id ~ '^[A-Za-z]+[0-9]{3,}$'
+        """,
         # rooms.id + related FK columns: INTEGER → VARCHAR (idempotent, runs only once)
         """
         DO $$

@@ -37,6 +37,8 @@ class RoomIn(BaseModel):
     name: str
     max_capacity: int
     target_temp: float
+    building: Optional[str] = None
+    floor: Optional[int] = None
     schedules: List[ScheduleIn] = []
 
 
@@ -45,6 +47,8 @@ class RoomCreateIn(BaseModel):
     name: str
     max_capacity: int
     target_temp: float
+    building: Optional[str] = None
+    floor: Optional[int] = None
 
 
 class SensorDeviceIn(BaseModel):
@@ -64,6 +68,8 @@ class RoomUpdateIn(BaseModel):
     name: str
     max_capacity: int
     target_temp: float
+    building: Optional[str] = None
+    floor: Optional[int] = None
 
 
 class RoomPolicyIn(BaseModel):
@@ -111,6 +117,20 @@ class RoomOut(BaseModel):
     max_capacity: int
     target_temp: float
     control_policy: Optional[str] = None
+    building: Optional[str] = None
+    floor: Optional[int] = None
+
+
+def _room_out(r: Room) -> dict:
+    return {
+        "id": r.id, "name": r.name, "max_capacity": r.max_capacity, "target_temp": r.target_temp,
+        "control_policy": r.control_policy, "building": r.building, "floor": r.floor,
+    }
+
+
+def _clean_building(value: Optional[str]) -> Optional[str]:
+    value = (value or "").strip()
+    return value.upper() if value else None
 
 
 class RoomPolicyOut(BaseModel):
@@ -171,8 +191,8 @@ def list_rooms(
     db: Session = Depends(get_db_sql),
     current_user: User = Depends(get_current_user),
 ):
-    rooms = db.query(Room).order_by(Room.id).all()
-    return [{"id": r.id, "name": r.name, "max_capacity": r.max_capacity, "target_temp": r.target_temp, "control_policy": r.control_policy} for r in rooms]
+    rooms = db.query(Room).order_by(Room.building, Room.floor, Room.id).all()
+    return [_room_out(r) for r in rooms]
 
 
 @router.get("/rooms/{room_id}/impact")
@@ -220,7 +240,7 @@ def get_room(
     room = db.query(Room).filter(Room.id == room_id).first()
     if not room:
         raise HTTPException(status_code=404, detail=f"Room id='{room_id}' not found.")
-    return {"id": room.id, "name": room.name, "max_capacity": room.max_capacity, "target_temp": room.target_temp, "control_policy": room.control_policy}
+    return _room_out(room)
 
 
 # ANTES: @router.put("/rooms/{room_id}/policy")
@@ -297,6 +317,8 @@ def create_room(
         name=payload.name,
         max_capacity=payload.max_capacity,
         target_temp=payload.target_temp,
+        building=_clean_building(payload.building),
+        floor=payload.floor,
     )
     db.add(room)
     try:
@@ -307,7 +329,7 @@ def create_room(
         logger.error("DB error creating room: %s", exc)
         raise HTTPException(status_code=503, detail="Database unavailable") from exc
     logger.info("Admin '%s' created room '%s' (%s).", current_user.username, room.id, room.name)
-    return {"id": room.id, "name": room.name, "max_capacity": room.max_capacity, "target_temp": room.target_temp}
+    return _room_out(room)
 
 
 # ANTES: @router.put("/rooms/{room_id}")
@@ -355,7 +377,10 @@ def update_room(
                 room.name = f"__renaming__{room_id}"
                 db.flush()
             # Step 1: insert new room so children can reference it immediately
-            new_room = Room(id=new_id, name=payload.name, max_capacity=payload.max_capacity, target_temp=payload.target_temp)
+            new_room = Room(
+                id=new_id, name=payload.name, max_capacity=payload.max_capacity, target_temp=payload.target_temp,
+                control_policy=room.control_policy, building=_clean_building(payload.building), floor=payload.floor,
+            )
             db.add(new_room)
             db.flush()
             # Step 2: re-parent children — schedules always, others per cascade flags
@@ -372,12 +397,14 @@ def update_room(
                 "Admin '%s' renamed room '%s' → '%s' (cascade_sensors=%s, cascade_reservations=%s).",
                 current_user.username, room_id, new_id, cascade_sensors, cascade_reservations,
             )
-            return {"id": new_id, "name": payload.name, "max_capacity": payload.max_capacity, "target_temp": payload.target_temp}
+            return _room_out(new_room)
 
         # Normal update — no PK change
         room.name = payload.name
         room.max_capacity = payload.max_capacity
         room.target_temp = payload.target_temp
+        room.building = _clean_building(payload.building)
+        room.floor = payload.floor
         db.commit()
         db.refresh(room)
     except HTTPException:
@@ -388,7 +415,7 @@ def update_room(
         raise HTTPException(status_code=503, detail="Database unavailable") from exc
 
     logger.info("Admin '%s' updated room '%s'.", current_user.username, room.id)
-    return {"id": room.id, "name": room.name, "max_capacity": room.max_capacity, "target_temp": room.target_temp}
+    return _room_out(room)
 
 
 # ANTES: @router.delete("/rooms/{room_id}", status_code=200)
@@ -521,12 +548,16 @@ def setup_room(
         if room:
             room.max_capacity = payload.max_capacity
             room.target_temp = payload.target_temp
+            room.building = _clean_building(payload.building) or room.building
+            room.floor = payload.floor if payload.floor is not None else room.floor
         else:
             room = Room(
                 id=payload.id,
                 name=payload.name,
                 max_capacity=payload.max_capacity,
                 target_temp=payload.target_temp,
+                building=_clean_building(payload.building),
+                floor=payload.floor,
             )
             db.add(room)
             db.flush()

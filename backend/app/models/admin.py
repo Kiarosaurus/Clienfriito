@@ -32,6 +32,9 @@ class Room(Base):
     max_capacity = Column(Integer, nullable=False)
     target_temp = Column(Float, nullable=False)
     control_policy = Column(String, nullable=False, default="auto", server_default="auto")
+    # Location, used to group and filter rooms in the UI (building → floor → room).
+    building = Column(String, nullable=True, index=True)
+    floor = Column(Integer, nullable=True)
 
     schedules = relationship("Schedule", back_populates="room", cascade="all, delete-orphan")
     # SensorDevice and Reservation rows survive room deletion as historical audit orphans.

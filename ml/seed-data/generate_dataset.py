@@ -85,6 +85,11 @@ ROOMS = [
     ("M802",  "M802 Laboratorio Multipropósito",                       36, 20.0),
     ("M602",  "M602 Laboratorio Multipropósito",                       36, 20.0),
 ]
+# Location (building, floor) shown and filtered in the dashboard.
+ROOM_LOCATION = {
+    "A403": ("A", 4), "M601": ("M", 6), "M604": ("M", 6),
+    "M1001": ("M", 10), "M802": ("M", 8), "M602": ("M", 6),
+}
 ROOM_CAP = {r[0]: r[2] for r in ROOMS}
 ROOM_TARGET = {r[0]: r[3] for r in ROOMS}
 
@@ -301,8 +306,9 @@ def insert_postgres() -> None:
             s.flush()
 
         for rid, name, cap, target in ROOMS:
-            s.merge(Room(id=rid, name=name, max_capacity=cap,
-                         target_temp=target, control_policy="auto"))
+            building, floor = ROOM_LOCATION[rid]
+            s.merge(Room(id=rid, name=name, max_capacity=cap, target_temp=target,
+                         control_policy="auto", building=building, floor=floor))
             s.merge(SensorDevice(id=sensor_id(rid), room_id=rid,
                                  is_active=True, control_enabled=True))
 
