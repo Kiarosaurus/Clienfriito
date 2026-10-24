@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, Cpu, CalendarDays, FlaskConical,
+  LayoutDashboard, CalendarDays, FlaskConical,
   Users, LogOut, Building, TrendingUp,
   AlertTriangle, X, ShieldAlert, Menu, Clock, ChevronDown,
 } from 'lucide-react'
@@ -29,7 +29,6 @@ const NAV: { group: string; items: NavItem[] }[] = [
   ] },
   { group: 'Administración', items: [
     { to: '/infrastructure',   label: 'Infraestructura', icon: <Building size={18} />,     roles: ['admin'] },
-    { to: '/sensors',          label: 'Sensores',        icon: <Cpu size={18} />,          roles: ['admin'] },
     { to: '/admin/users',      label: 'Usuarios',        icon: <Users size={18} />,        roles: ['admin'] },
     { to: '/admin/simulation', label: 'Simulación',      icon: <FlaskConical size={18} />, roles: ['admin'] },
   ] },

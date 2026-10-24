@@ -5,7 +5,6 @@ import { EmergencyProvider } from './context/EmergencyContext'
 import Layout from './components/Layout'
 import Login from './components/Login'
 import Overview from './views/Overview'
-import SensorSearch from './views/SensorSearch'
 import Reservations from './views/Reservations'
 import UserManagement from './views/UserManagement'
 import Infrastructure from './views/Infrastructure'
@@ -74,14 +73,7 @@ export default function App() {
           <Route index element={<Overview />} />
           <Route path="rooms"        element={<Navigate to="/" replace />} />
           <Route path="room/:id"     element={<RoomDetail />} />
-          <Route
-            path="sensors"
-            element={
-              <AdminRoute>
-                <SensorSearch />
-              </AdminRoute>
-            }
-          />
+          <Route path="sensors" element={<Navigate to="/infrastructure?vista=sensores" replace />} />
           <Route
             path="reservations"
             element={

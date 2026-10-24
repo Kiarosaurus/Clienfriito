@@ -1,1244 +1,572 @@
-import { useState, useEffect, useCallback } from 'react'
-import {
-  Building2, Cpu, Radio, PlusCircle, Pencil, Trash2,
-  RefreshCw, AlertCircle, CheckCircle2, X, Info, DoorOpen, TriangleAlert,
-} from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Plus, Pencil, RefreshCw, AlertTriangle, Search } from 'lucide-react'
 import api, { getApiErrorDetail } from '../api/client'
+import type { StoredReading } from '../types'
 import { NUM_INPUT_MODS } from '../utils/formStyles'
-import SearchableSelect from '../components/SearchableSelect'
+import { compareRooms, locationLabel, roomOptions, shortName, type Room } from '../utils/rooms'
 import { RoomFilters, useRoomFilter } from '../components/RoomFilters'
-import { Pagination, usePage } from '../components/ui'
-import { compareRooms, locationLabel, roomOptions as groupedRoomOptions, shortName, type Room } from '../utils/rooms'
+import SearchableSelect from '../components/SearchableSelect'
+import {
+  Card, Chip, Dialog, PageHeader, Pagination, Tabs, Toast, LIVE_SECONDS,
+  parseUtc, timeAgo, usePage, useToast,
+} from '../components/ui'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// Physical configuration: rooms and their sensors (one page, one question: "what is
+// installed and where?"). Registering a room + its sensor s-<room> is what lets a new
+// node join without code changes (RNF-28/29). Live device switches stay in the room view,
+// where a collaborator with an active reservation may use them (RF-37).
 
-interface SensorDevice {
-  sensor_id: string
-  room_id: string
-  room_name: string | null
-  is_active: boolean
-  control_enabled: boolean
+interface Device { sensor_id: string; room_id: string | null; room_name: string | null; is_active: boolean; control_enabled: boolean }
+interface Latest { sensor_id?: string | null; room_id?: string | null; reading: StoredReading | null }
+type View = 'aulas' | 'sensores'
+
+interface RoomForm { id: string; name: string; building: string; floor: string; max_capacity: string; target_temp: string }
+const EMPTY_ROOM: RoomForm = { id: '', name: '', building: '', floor: '', max_capacity: '30', target_temp: '24' }
+
+function friendly(err: unknown, fallback: string) {
+  const status = (err as { response?: { status?: number } })?.response?.status
+  if (status === 409) return 'Ya existe un aula o sensor con ese código o nombre.'
+  if (status === 403) return 'Tu rol no puede modificar la infraestructura.'
+  return getApiErrorDetail(err) ?? fallback
 }
 
-interface Toast { type: 'success' | 'error'; message: string }
-interface EditRoomForm { new_id: string; name: string; max_capacity: string; target_temp: string; building: string; floor: string }
-interface RoomImpact   { reservations_count: number; sensors_count: number }
-interface OrphanData  { reservations_count: number; sensors_count: number }
-
-type RoomTab   = 'register' | 'edit'
-type SensorTab = 'register' | 'edit'
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function DataRow({ label, value, changed }: { label: string; value: string; changed?: boolean }) {
+function LastReading({ reading, now }: { reading: StoredReading | null | undefined; now: number }) {
+  if (!reading) return <span className="text-xs text-slate-500">Nunca</span>
+  const live = (now - parseUtc(reading.timestamp).getTime()) / 1000 < LIVE_SECONDS
   return (
-    <div>
-      <p className="text-xs text-slate-500 mb-0.5">{label}</p>
-      <p className={`text-sm font-medium ${changed ? 'text-amber-300' : 'text-slate-200'}`}>
-        {value}
-        {changed && (
-          <span className="ml-1.5 text-xs bg-amber-500/20 text-amber-400 px-1 py-0.5 rounded">
-            modificado
-          </span>
-        )}
-      </p>
-    </div>
+    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+      {live && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />}
+      {live ? 'En vivo' : timeAgo(reading.timestamp, now)}
+    </span>
   )
 }
-
-interface TabBarProps {
-  active: string
-  onChange: (v: string) => void
-  tabs: { key: string; label: string; icon: React.ReactNode }[]
-}
-
-function TabBar({ active, onChange, tabs }: TabBarProps) {
-  return (
-    <div className="segmented p-0.5">
-      {tabs.map(t => (
-        <button
-          key={t.key}
-          type="button"
-          onClick={() => onChange(t.key)}
-          className={`segmented-item text-xs ${active === t.key ? 'segmented-item-active' : ''}`}
-        >
-          {t.icon} {t.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-// ── Main component ────────────────────────────────────────────────────────────
 
 export default function Infrastructure() {
-  // ── Data ─────────────────────────────────────────────────────────────────
-  const [rooms,   setRooms]   = useState<Room[]>([])
-  const [devices, setDevices] = useState<SensorDevice[]>([])
+  const [params, setParams] = useSearchParams()
+  const view = (params.get('vista') as View) || 'aulas'
+  const setView = (v: View) => setParams(v === 'aulas' ? {} : { vista: v }, { replace: true })
+
+  const [rooms, setRooms] = useState<Room[]>([])
+  const [devices, setDevices] = useState<Device[]>([])
+  const [latestRoom, setLatestRoom] = useState<Record<string, StoredReading | null>>({})
+  const [latestSensor, setLatestSensor] = useState<Record<string, StoredReading | null>>({})
   const [loading, setLoading] = useState(true)
-  const [toast,   setToast]   = useState<Toast | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [now, setNow] = useState(Date.now())
+  const { toast, notify, clear } = useToast()
 
-  // ── Per-card submitting state ─────────────────────────────────────────────
-  const [roomSubmitting,   setRoomSubmitting]   = useState(false)
-  const [sensorSubmitting, setSensorSubmitting] = useState(false)
+  const [roomDialog, setRoomDialog] = useState<{ original: Room | null } | null>(null)
+  const [roomToDelete, setRoomToDelete] = useState<Room | null>(null)
+  const [sensorDialog, setSensorDialog] = useState<{ original: Device | null } | null>(null)
+  const [sensorToDelete, setSensorToDelete] = useState<Device | null>(null)
 
-  // ── Tab state ─────────────────────────────────────────────────────────────
-  const [roomTab,   setRoomTab]   = useState<RoomTab>('register')
-  const [sensorTab, setSensorTab] = useState<SensorTab>('register')
-
-  // ── Register room ─────────────────────────────────────────────────────────
-  const EMPTY_ROOM = { id: '', name: '', max_capacity: '30', target_temp: '22', building: '', floor: '' }
-  const [regRoomForm, setRegRoomForm] = useState(EMPTY_ROOM)
-
-  // ── Edit room ─────────────────────────────────────────────────────────────
-  const [editRoomId,       setEditRoomId]       = useState('')
-  const [editRoomForm,     setEditRoomForm]     = useState<EditRoomForm>({ new_id: '', name: '', max_capacity: '30', target_temp: '22', building: '', floor: '' })
-  const [editRoomModalOpen, setEditRoomModalOpen] = useState(false)
-  const [pendingRoom, setPendingRoom] = useState<{ original: Room; form: EditRoomForm } | null>(null)
-
-  // ── Register sensor ───────────────────────────────────────────────────────
-  const [regSensorForm, setRegSensorForm] = useState({ id: '', room_id: '' })
-
-  // ── Edit sensor ───────────────────────────────────────────────────────────
-  const [editSensorId,       setEditSensorId]       = useState('')
-  const [editSensorNewId,    setEditSensorNewId]    = useState('')
-  const [editSensorRoomId,   setEditSensorRoomId]   = useState('')
-  const [editSensorModalOpen, setEditSensorModalOpen] = useState(false)
-  const [pendingSensor, setPendingSensor] = useState<{
-    original: SensorDevice; newSensorId: string; newRoomId: string; newRoomName: string
-  } | null>(null)
-
-  // ── Edit room cascade flags (shown in confirmation modal) ────────────────
-  const [cascadeReservations, setCascadeReservations] = useState(true)
-  const [cascadeSensors,      setCascadeSensors]      = useState(true)
-
-  // ── Delete room modal ─────────────────────────────────────────────────────
-  const [deleteRoomModalOpen,  setDeleteRoomModalOpen]  = useState(false)
-  const [roomImpact,           setRoomImpact]           = useState<RoomImpact | null>(null)
-  const [impactLoading,        setImpactLoading]        = useState(false)
-  const [deleteRoomConfirm,    setDeleteRoomConfirm]    = useState('')
-
-  // ── Orphan-inheritance warning modal (register room flow) ─────────────────
-  const [orphanWarningOpen, setOrphanWarningOpen] = useState(false)
-  const [orphanData,        setOrphanData]        = useState<OrphanData | null>(null)
-  const [orphanConfirm,     setOrphanConfirm]     = useState('')
-
-  // ── Delete sensor modal ───────────────────────────────────────────────────
-  const [deleteSensorModalOpen, setDeleteSensorModalOpen] = useState(false)
-  const [deleteSensorConfirm,   setDeleteSensorConfirm]   = useState('')
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  const showToast = (type: Toast['type'], message: string) => {
-    setToast({ type, message })
-    setTimeout(() => setToast(null), 4500)
-  }
-
-  const refreshRooms = useCallback(() =>
-    api.get<Room[]>('/admin/rooms').then(res => {
-      const data = Array.isArray(res.data) ? res.data : []
-      setRooms(data)
-      return data
-    }), [])
-
-  const refreshDevices = useCallback(() =>
-    api.get<SensorDevice[]>('/admin/devices').then(res => {
-      setDevices(Array.isArray(res.data) ? res.data : [])
-    }), [])
-
-  useEffect(() => {
-    Promise.all([refreshRooms(), refreshDevices()])
-      .then(([roomList]) => {
-        if (roomList.length > 0) setRegSensorForm(f => ({ ...f, room_id: roomList[0].id }))
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [refreshRooms, refreshDevices])
-
-  // ── Room actions ──────────────────────────────────────────────────────────
-
-  function selectEditRoom(id: string) {
-    setEditRoomId(id)
-    const room = rooms.find(r => r.id === id)
-    if (room) setEditRoomForm({
-      new_id: room.id, name: room.name, max_capacity: String(room.max_capacity), target_temp: String(room.target_temp),
-      building: room.building ?? '', floor: room.floor == null ? '' : String(room.floor),
+  const load = useCallback(() => Promise.all([
+    api.get<Room[]>('/admin/rooms'),
+    api.get<Device[]>('/admin/devices'),
+    api.get<Latest[]>('/sensors/latest').catch(() => ({ data: [] as Latest[] })),
+    api.get<Latest[]>('/sensors/latest?by=sensor').catch(() => ({ data: [] as Latest[] })),
+  ])
+    .then(([r, d, lr, ls]) => {
+      setRooms(r.data ?? [])
+      setDevices(d.data ?? [])
+      setLatestRoom(Object.fromEntries((lr.data ?? []).map(x => [x.room_id ?? '', x.reading])))
+      setLatestSensor(Object.fromEntries((ls.data ?? []).map(x => [x.sensor_id ?? '', x.reading])))
+      setNow(Date.now())
+      setError(null)
     })
-  }
+    .catch(err => setError(getApiErrorDetail(err) ?? 'No se pudo cargar la infraestructura.'))
+    .finally(() => setLoading(false)), [])
 
-  async function doRegisterRoom() {
-    await api.post('/admin/rooms', {
-      id: regRoomForm.id.trim(),
-      name: regRoomForm.name.trim(),
-      max_capacity: Number(regRoomForm.max_capacity) || 0,
-      target_temp: Number(regRoomForm.target_temp) || 0,
-      building: regRoomForm.building.trim() || null,
-      floor: regRoomForm.floor === '' ? null : Number(regRoomForm.floor),
-    })
-    showToast('success', `Aula '${regRoomForm.id.trim()}' registrada correctamente.`)
-    setRegRoomForm(EMPTY_ROOM)
-    await refreshRooms()
-  }
+  useEffect(() => { load() }, [load])
 
-  async function handleRegisterRoom(e: React.FormEvent) {
-    e.preventDefault()
-    const id = regRoomForm.id.trim()
-    if (!id) return
-    setRoomSubmitting(true)
-    try {
-      const { data } = await api.get<{ has_orphans: boolean; reservations_count: number; sensors_count: number }>(
-        `/admin/rooms/check-orphans/${encodeURIComponent(id)}`
-      )
-      if (data.has_orphans) {
-        setOrphanData({ reservations_count: data.reservations_count, sensors_count: data.sensors_count })
-        setOrphanConfirm('')
-        setOrphanWarningOpen(true)
-        return  // pause — user must confirm inheritance in the warning modal
-      }
-      await doRegisterRoom()
-    } catch (err: unknown) {
-      const detail = getApiErrorDetail(err)
-      showToast('error', detail ?? 'No se pudo registrar el aula.')
-    } finally {
-      setRoomSubmitting(false)
-    }
-  }
-
-  async function confirmOrphanInheritance() {
-    if (orphanConfirm !== regRoomForm.id.trim()) return
-    setOrphanWarningOpen(false)
-    setOrphanData(null)
-    setRoomSubmitting(true)
-    try {
-      await doRegisterRoom()
-    } catch (err: unknown) {
-      const detail = getApiErrorDetail(err)
-      showToast('error', detail ?? 'No se pudo registrar el aula.')
-    } finally {
-      setRoomSubmitting(false)
-    }
-  }
-
-  function openEditRoomModal(e: React.FormEvent) {
-    e.preventDefault()
-    if (!editRoomId) return
-    const original = rooms.find(r => r.id === editRoomId)
-    if (!original) return
-    setPendingRoom({ original, form: { ...editRoomForm } })
-    setCascadeReservations(true)
-    setCascadeSensors(true)
-    setEditRoomModalOpen(true)
-  }
-
-  async function confirmEditRoom() {
-    if (!pendingRoom) return
-    setRoomSubmitting(true)
-    setEditRoomModalOpen(false)
-    const idChanged = pendingRoom.form.new_id && pendingRoom.form.new_id !== pendingRoom.original.id
-    try {
-      await api.put(`/admin/rooms/${pendingRoom.original.id}`, {
-        ...pendingRoom.form,
-        max_capacity: Number(pendingRoom.form.max_capacity) || 0,
-        target_temp: Number(pendingRoom.form.target_temp) || 0,
-        building: pendingRoom.form.building.trim() || null,
-        floor: pendingRoom.form.floor === '' ? null : Number(pendingRoom.form.floor),
-      }, {
-        params: { cascade_sensors: cascadeSensors, cascade_reservations: cascadeReservations },
-      })
-      const label = idChanged ? pendingRoom.form.new_id : pendingRoom.original.id
-      showToast('success', `Aula '${label}' actualizada correctamente.`)
-      setPendingRoom(null)
-      setEditRoomId('')
-      setEditRoomForm({ new_id: '', name: '', max_capacity: '30', target_temp: '22', building: '', floor: '' })
-      await refreshRooms()
-    } catch (err: unknown) {
-      const detail = getApiErrorDetail(err)
-      showToast('error', detail ?? 'No se pudo actualizar el aula.')
-    } finally { setRoomSubmitting(false) }
-  }
-
-  // ── Sensor actions ────────────────────────────────────────────────────────
-
-  function selectEditSensor(id: string) {
-    setEditSensorId(id)
-    setEditSensorNewId(id)
-    const dev = devices.find(d => d.sensor_id === id)
-    setEditSensorRoomId(dev?.room_id ?? '')
-  }
-
-  async function handleRegisterSensor(e: React.FormEvent) {
-    e.preventDefault()
-    if (!regSensorForm.room_id) return
-    setSensorSubmitting(true)
-    try {
-      await api.post('/admin/sensors', {
-        id: regSensorForm.id.trim(),
-        room_id: regSensorForm.room_id,
-      })
-      showToast('success', `Sensor '${regSensorForm.id}' aprovisionado. Estado inicial: inactivo.`)
-      setRegSensorForm(f => ({ ...f, id: '' }))
-      await refreshDevices()
-    } catch (err: unknown) {
-      const detail = getApiErrorDetail(err)
-      showToast('error', detail ?? 'No se pudo registrar el sensor.')
-    } finally { setSensorSubmitting(false) }
-  }
-
-  function openEditSensorModal(e: React.FormEvent) {
-    e.preventDefault()
-    if (!editSensorId) return
-    const original = devices.find(d => d.sensor_id === editSensorId)
-    if (!original) return
-    const newRoom = rooms.find(r => r.id === editSensorRoomId)
-    setPendingSensor({
-      original,
-      newSensorId: editSensorNewId.trim() || editSensorId,
-      newRoomId: editSensorRoomId,
-      newRoomName: editSensorRoomId ? (newRoom?.name ?? editSensorRoomId) : '(Sin asignar)',
-    })
-    setEditSensorModalOpen(true)
-  }
-
-  async function confirmEditSensor() {
-    if (!pendingSensor) return
-    setSensorSubmitting(true)
-    setEditSensorModalOpen(false)
-    const idChanged = pendingSensor.newSensorId !== pendingSensor.original.sensor_id
-    try {
-      await api.put(`/admin/sensors/${pendingSensor.original.sensor_id}`, {
-        room_id: pendingSensor.newRoomId || null,
-        ...(idChanged ? { new_id: pendingSensor.newSensorId } : {}),
-      })
-      const label = idChanged ? pendingSensor.newSensorId : pendingSensor.original.sensor_id
-      showToast('success', `Sensor '${label}' actualizado correctamente.`)
-      setPendingSensor(null)
-      setEditSensorId('')
-      setEditSensorNewId('')
-      setEditSensorRoomId('')
-      await refreshDevices()
-    } catch (err: unknown) {
-      const detail = getApiErrorDetail(err)
-      showToast('error', detail ?? 'No se pudo actualizar el sensor.')
-    } finally { setSensorSubmitting(false) }
-  }
-
-  // ── Delete room handlers ──────────────────────────────────────────────────
-
-  async function openDeleteRoomModal() {
-    if (!editRoomId) return
-    setDeleteRoomModalOpen(true)
-    setDeleteRoomConfirm('')
-    setRoomImpact(null)
-    setImpactLoading(true)
-    try {
-      const { data } = await api.get<RoomImpact>(`/admin/rooms/${editRoomId}/impact`)
-      setRoomImpact(data)
-    } catch {
-      setRoomImpact({ reservations_count: 0, sensors_count: 0 })
-    } finally {
-      setImpactLoading(false)
-    }
-  }
-
-  async function confirmDeleteRoom() {
-    if (!editRoomId || deleteRoomConfirm !== editRoomId) return
-    setRoomSubmitting(true)
-    setDeleteRoomModalOpen(false)
-    try {
-      await api.delete(`/admin/rooms/${editRoomId}`)
-      showToast('success', `Aula '${editRoomId}' eliminada definitivamente.`)
-      setEditRoomId('')
-      setEditRoomForm({ new_id: '', name: '', max_capacity: '30', target_temp: '22', building: '', floor: '' })
-      setDeleteRoomConfirm('')
-      setRoomImpact(null)
-      await Promise.all([refreshRooms(), refreshDevices()])
-    } catch (err: unknown) {
-      const detail = getApiErrorDetail(err)
-      showToast('error', detail ?? 'No se pudo eliminar el aula.')
-    } finally { setRoomSubmitting(false) }
-  }
-
-  // ── Delete sensor handlers ────────────────────────────────────────────────
-
-  async function confirmDeleteSensor() {
-    if (!editSensorId || deleteSensorConfirm !== editSensorId) return
-    setSensorSubmitting(true)
-    setDeleteSensorModalOpen(false)
-    try {
-      await api.delete(`/admin/sensors/${editSensorId}`)
-      showToast('success', `Sensor '${editSensorId}' eliminado definitivamente.`)
-      setEditSensorId('')
-      setEditSensorRoomId('')
-      setDeleteSensorConfirm('')
-      await refreshDevices()
-    } catch (err: unknown) {
-      const detail = getApiErrorDetail(err)
-      showToast('error', detail ?? 'No se pudo eliminar el sensor.')
-    } finally { setSensorSubmitting(false) }
-  }
-
-  // ── Derived ───────────────────────────────────────────────────────────────
-
-  const roomOptions = groupedRoomOptions(rooms)
-  // Sensor-edit variant: prepend the "detach" option (value='') so admins can orphan a sensor
-  const sensorRoomOptions = [
-    { value: '', label: '(Ninguna / Dejar Huérfano)' },
-    ...roomOptions,
-  ]
-  const sensorOptions = devices.map(d => ({
-    value: d.sensor_id,
-    label: `${d.sensor_id}${d.room_name ? ` (${d.room_name})` : ''}`,
-  }))
-  const currentDevice = devices.find(d => d.sensor_id === editSensorId) ?? null
-
-  const inputCls = "field"
-  const roomFilter = useRoomFilter(rooms)
-  const sortedRooms = [...roomFilter.filtered].sort(compareRooms)
-  const roomPage = usePage(sortedRooms, 10)
-  const sensorsOf = (id: string) => devices.filter(d => d.room_id === id)
-  const numInputCls = `${inputCls} ${NUM_INPUT_MODS}`
-  const labelCls = "field-label"
-
-  // ── Render ────────────────────────────────────────────────────────────────
+  const roomById = useMemo(() => Object.fromEntries(rooms.map(r => [r.id, r])), [rooms])
 
   return (
     <div className="space-y-4">
+      <PageHeader title="Infraestructura" subtitle="Aulas y sensores instalados. Para sumar un nodo nuevo, registra su aula y su sensor.">
+        {view === 'aulas'
+          ? <button className="btn btn-primary" onClick={() => setRoomDialog({ original: null })}><Plus size={16} /> Nueva aula</button>
+          : <button className="btn btn-primary" onClick={() => setSensorDialog({ original: null })} disabled={rooms.length === 0}><Plus size={16} /> Nuevo sensor</button>}
+      </PageHeader>
 
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <div>
-          <h1 className="page-title">Infraestructura</h1>
-          <p className="mt-1 text-xs text-slate-400">Aprovisionamiento y configuración de aulas y sensores IoT</p>
-        </div>
-      </div>
+      {error && <Card className="border-red-500/40 text-sm text-red-300">{error}</Card>}
 
-      {/* Toast */}
-      {toast && (
-        <div className={`flex items-center justify-between gap-3 rounded-lg px-4 py-3 text-sm ${
-          toast.type === 'success'
-            ? 'bg-emerald-900/40 border border-emerald-500/40 text-emerald-300'
-            : 'bg-red-900/40 border border-red-500/40 text-red-300'
-        }`}>
-          <span className="flex items-center gap-2">
-            {toast.type === 'success'
-              ? <CheckCircle2 size={16} className="shrink-0" />
-              : <AlertCircle size={16} className="shrink-0" />}
-            {toast.message}
-          </span>
-          <button onClick={() => setToast(null)} className="opacity-60 hover:opacity-100 transition-opacity">
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      <Tabs<View>
+        value={view}
+        onChange={setView}
+        items={[
+          { value: 'aulas', label: `Aulas · ${rooms.length}` },
+          { value: 'sensores', label: `Sensores · ${devices.length}` },
+        ]}
+      />
 
       {loading ? (
-        <div className="flex items-center gap-2 text-slate-400 text-sm py-12">
-          <RefreshCw size={14} className="animate-spin" /> Cargando infraestructura…
-        </div>
+        <p className="flex items-center gap-2 py-8 text-sm text-slate-400"><RefreshCw size={14} className="animate-spin" /> Cargando…</p>
+      ) : view === 'aulas' ? (
+        <RoomsTab rooms={rooms} devices={devices} latest={latestRoom} now={now} onEdit={r => setRoomDialog({ original: r })} />
       ) : (
+        <SensorsTab devices={devices} rooms={roomById} latest={latestSensor} now={now} onEdit={d => setSensorDialog({ original: d })} />
+      )}
 
-        <>
-        {/* ── Rooms table: list → detail instead of a dropdown (rule 11) ── */}
-        <div className="surface p-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="section-title">Aulas registradas · {rooms.length}</h2>
-            <RoomFilters rooms={rooms} state={roomFilter.state} onChange={roomFilter.setState} />
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="table-head">
-                  <th className="py-2 pr-4 font-normal">Aula</th>
-                  <th className="py-2 pr-4 font-normal">Ubicación</th>
-                  <th className="py-2 pr-4 font-normal">Capacidad</th>
-                  <th className="py-2 pr-4 font-normal">Temp. objetivo</th>
-                  <th className="py-2 pr-4 font-normal">Sensores</th>
-                  <th className="py-2 font-normal" />
-                </tr>
-              </thead>
-              <tbody>
-                {roomPage.rows.map(r => (
-                  <tr key={r.id} className={`table-row ${editRoomId === r.id ? 'bg-slate-800/50' : ''}`}>
-                    <td className="py-2 pr-4"><span className="font-medium text-slate-100">{r.id}</span> <span className="text-slate-400">{shortName(r)}</span></td>
+      {roomDialog && (
+        <RoomDialog
+          original={roomDialog.original}
+          onClose={() => setRoomDialog(null)}
+          onDelete={r => { setRoomDialog(null); setRoomToDelete(r) }}
+          onSaved={msg => { setRoomDialog(null); notify('ok', msg); load() }}
+        />
+      )}
+      {roomToDelete && (
+        <DeleteRoomDialog
+          room={roomToDelete}
+          onClose={() => setRoomToDelete(null)}
+          onDeleted={() => { notify('ok', `Aula ${roomToDelete.id} eliminada.`); setRoomToDelete(null); load() }}
+          onError={msg => notify('error', msg)}
+        />
+      )}
+      {sensorDialog && (
+        <SensorDialog
+          original={sensorDialog.original}
+          rooms={rooms}
+          devices={devices}
+          onClose={() => setSensorDialog(null)}
+          onDelete={d => { setSensorDialog(null); setSensorToDelete(d) }}
+          onSaved={msg => { setSensorDialog(null); notify('ok', msg); load() }}
+        />
+      )}
+      {sensorToDelete && (
+        <DeleteSensorDialog
+          device={sensorToDelete}
+          onClose={() => setSensorToDelete(null)}
+          onDeleted={() => { notify('ok', `Sensor ${sensorToDelete.sensor_id} eliminado.`); setSensorToDelete(null); load() }}
+          onError={msg => notify('error', msg)}
+        />
+      )}
+      <Toast toast={toast} onClose={clear} />
+    </div>
+  )
+}
+
+// ── Aulas ─────────────────────────────────────────────────────────────────────
+function RoomsTab({ rooms, devices, latest, now, onEdit }: {
+  rooms: Room[]; devices: Device[]; latest: Record<string, StoredReading | null>; now: number; onEdit: (r: Room) => void
+}) {
+  const filter = useRoomFilter(rooms)
+  const sorted = [...filter.filtered].sort(compareRooms)
+  const page = usePage(sorted, 15)
+  const sensorsOf = (id: string) => devices.filter(d => d.room_id === id)
+
+  return (
+    <Card>
+      <div className="mb-3">
+        <RoomFilters rooms={rooms} state={filter.state} onChange={filter.setState}>
+          <span className="ml-auto text-xs text-slate-400">{sorted.length} de {rooms.length} aulas</span>
+        </RoomFilters>
+      </div>
+      {sorted.length === 0 ? (
+        <p className="py-4 text-sm text-slate-400">{rooms.length ? 'Ningún aula coincide con los filtros.' : 'Todavía no hay aulas. Crea la primera con "Nueva aula".'}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-sm">
+            <thead>
+              <tr className="table-head">
+                {['Aula', 'Ubicación', 'Capacidad', 'Temp. objetivo', 'Sensores', 'Última lectura', ''].map(h => <th key={h} className="py-2 pr-4 font-normal">{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {page.rows.map(r => {
+                const sensors = sensorsOf(r.id)
+                return (
+                  <tr key={r.id} className="table-row cursor-pointer" onClick={() => onEdit(r)}>
+                    <td className="py-2 pr-4">
+                      <Link to={`/room/${r.id}`} onClick={e => e.stopPropagation()} className="font-medium text-slate-100 hover:underline">{r.id}</Link>
+                      <span className="ml-2 text-slate-400">{shortName(r)}</span>
+                    </td>
                     <td className="py-2 pr-4 text-slate-300">{locationLabel(r)}</td>
-                    <td className="py-2 pr-4 tabular-nums text-slate-300">{r.max_capacity}</td>
+                    <td className="py-2 pr-4 tabular-nums text-slate-300">{r.max_capacity} personas</td>
                     <td className="py-2 pr-4 tabular-nums text-slate-300">{r.target_temp} °C</td>
-                    <td className="py-2 pr-4 text-xs text-slate-400">{sensorsOf(r.id).map(d => d.sensor_id).join(', ') || '—'}</td>
+                    <td className="py-2 pr-4">
+                      {sensors.length ? <span className="text-xs text-slate-400">{sensors.map(s => s.sensor_id).join(', ')}</span> : <Chip tone="warn">Sin sensor</Chip>}
+                    </td>
+                    <td className="py-2 pr-4"><LastReading reading={latest[r.id]} now={now} /></td>
                     <td className="py-2 text-right">
-                      <button className="btn btn-ghost py-1" onClick={() => { setRoomTab('edit'); selectEditRoom(r.id) }}>
-                        <Pencil size={13} /> Editar
-                      </button>
+                      <button className="btn btn-ghost py-1" onClick={e => { e.stopPropagation(); onEdit(r) }}><Pencil size={13} /> Editar</button>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {sortedRooms.length === 0 && <p className="py-4 text-sm text-slate-400">Ningún aula coincide con los filtros.</p>}
-          <Pagination {...roomPage} noun="aulas" />
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
-
-          {/* ── Left column: Aulas ───────────────────────────────────────────── */}
-          <div className="surface overflow-hidden flex flex-col h-full">
-
-            {/* Card header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-              <h2 className="flex items-center gap-2 text-slate-100 text-sm font-semibold">
-                <Building2 size={15} className="text-slate-400 shrink-0" />
-                Aulas
-                <span className="text-slate-500 font-normal text-xs">(Infraestructura Física)</span>
-              </h2>
-              <TabBar
-                active={roomTab}
-                onChange={v => { setRoomTab(v as RoomTab); setEditRoomModalOpen(false) }}
-                tabs={[
-                  { key: 'register', label: 'Registrar', icon: <PlusCircle size={11} /> },
-                  { key: 'edit',     label: 'Editar',     icon: <Pencil size={11} /> },
-                ]}
-              />
-            </div>
-
-            <div className="p-5 flex flex-col flex-1 overflow-hidden">
-
-              {/* ── Registrar Aula ────────────────────────────────────────── */}
-              {roomTab === 'register' && (
-                <form onSubmit={handleRegisterRoom} className="flex flex-col flex-1 justify-between overflow-hidden">
-                  <div className="flex-1 min-h-0 overflow-y-auto pr-2 space-y-4">
-                    <div>
-                      <label className={labelCls}>ID del Aula</label>
-                      <input type="text" required placeholder="ej. AULA-101"
-                        value={regRoomForm.id}
-                        onChange={e => setRegRoomForm(f => ({ ...f, id: e.target.value }))}
-                        className={inputCls}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelCls}>Nombre</label>
-                      <input type="text" required placeholder="ej. Laboratorio de Física"
-                        value={regRoomForm.name}
-                        onChange={e => setRegRoomForm(f => ({ ...f, name: e.target.value }))}
-                        className={inputCls}
-                      />
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className={labelCls}>Capacidad Máxima</label>
-                        <input type="number" required min={1}
-                          value={regRoomForm.max_capacity}
-                          onChange={e => setRegRoomForm(f => ({ ...f, max_capacity: e.target.value }))}
-                          onBlur={e => setRegRoomForm(f => ({ ...f, max_capacity: e.target.value === '' ? '0' : e.target.value }))}
-                          className={numInputCls}
-                        />
-                      </div>
-                      <div>
-                        <label className={labelCls}>Temp. Objetivo (°C)</label>
-                        <input type="number" required min={10} max={35} step={0.5}
-                          value={regRoomForm.target_temp}
-                          onChange={e => setRegRoomForm(f => ({ ...f, target_temp: e.target.value }))}
-                          onBlur={e => setRegRoomForm(f => ({ ...f, target_temp: e.target.value === '' ? '0' : e.target.value }))}
-                          className={numInputCls}
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className={labelCls}>Edificio</label>
-                        <input type="text" placeholder="ej. M" maxLength={10}
-                          value={regRoomForm.building}
-                          onChange={e => setRegRoomForm(f => ({ ...f, building: e.target.value.toUpperCase() }))}
-                          className={inputCls}
-                        />
-                      </div>
-                      <div>
-                        <label className={labelCls}>Piso</label>
-                        <input type="number" placeholder="ej. 6" min={-5} max={99}
-                          value={regRoomForm.floor}
-                          onChange={e => setRegRoomForm(f => ({ ...f, floor: e.target.value }))}
-                          className={numInputCls}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="pt-4 border-t border-slate-700/50 flex justify-end">
-                    <button type="submit" disabled={roomSubmitting}
-                      className="btn btn-primary"
-                    >
-                      {roomSubmitting
-                        ? <><RefreshCw size={13} className="animate-spin" /> Guardando…</>
-                        : <><PlusCircle size={13} /> Registrar Aula</>}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* ── Editar Aula ───────────────────────────────────────────── */}
-              {roomTab === 'edit' && (
-                <form onSubmit={openEditRoomModal} className="flex flex-col flex-1 justify-between overflow-hidden">
-                  <div className="flex-1 min-h-0 overflow-y-auto pr-2 space-y-4">
-                    <SearchableSelect
-                      options={roomOptions}
-                      value={editRoomId}
-                      onChange={selectEditRoom}
-                      placeholder="Busca el aula a editar…"
-                      label="Seleccionar Aula"
-                      icon={<DoorOpen size={16} />}
-                    />
-                    {!editRoomId && (
-                      <p className="text-xs text-slate-500">
-                        Selecciona un aula para cargar sus datos actuales.
-                      </p>
-                    )}
-                    {editRoomId && (
-                      <>
-                        <p className="text-xs text-emerald-400 flex items-center gap-1">
-                          <CheckCircle2 size={11} /> Aula {editRoomId} cargada — modifica y revisa antes de guardar.
-                        </p>
-                        <div>
-                          <label className={labelCls}>ID del Aula</label>
-                          <input type="text" required
-                            value={editRoomForm.new_id}
-                            onChange={e => setEditRoomForm(f => ({ ...f, new_id: e.target.value }))}
-                            className={inputCls}
-                          />
-                        </div>
-                        <div>
-                          <label className={labelCls}>Nombre</label>
-                          <input type="text" required
-                            value={editRoomForm.name}
-                            onChange={e => setEditRoomForm(f => ({ ...f, name: e.target.value }))}
-                            className={inputCls}
-                          />
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className={labelCls}>Capacidad Máxima</label>
-                            <input type="number" required min={1}
-                              value={editRoomForm.max_capacity}
-                              onChange={e => setEditRoomForm(f => ({ ...f, max_capacity: e.target.value }))}
-                              onBlur={e => setEditRoomForm(f => ({ ...f, max_capacity: e.target.value === '' ? '0' : e.target.value }))}
-                              className={numInputCls}
-                            />
-                          </div>
-                          <div>
-                            <label className={labelCls}>Temp. Objetivo (°C)</label>
-                            <input type="number" required min={10} max={35} step={0.5}
-                              value={editRoomForm.target_temp}
-                              onChange={e => setEditRoomForm(f => ({ ...f, target_temp: e.target.value }))}
-                              onBlur={e => setEditRoomForm(f => ({ ...f, target_temp: e.target.value === '' ? '0' : e.target.value }))}
-                              className={numInputCls}
-                            />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className={labelCls}>Edificio</label>
-                            <input type="text" maxLength={10}
-                              value={editRoomForm.building}
-                              onChange={e => setEditRoomForm(f => ({ ...f, building: e.target.value.toUpperCase() }))}
-                              className={inputCls}
-                            />
-                          </div>
-                          <div>
-                            <label className={labelCls}>Piso</label>
-                            <input type="number" min={-5} max={99}
-                              value={editRoomForm.floor}
-                              onChange={e => setEditRoomForm(f => ({ ...f, floor: e.target.value }))}
-                              className={numInputCls}
-                            />
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  <div className="pt-4 border-t border-slate-700/50 flex items-center justify-between">
-                    {editRoomId ? (
-                      <button
-                        type="button"
-                        onClick={openDeleteRoomModal}
-                        className="flex items-center gap-1.5 text-sm text-red-500 hover:bg-red-500/10 px-3 py-2 rounded-lg transition-colors"
-                      >
-                        <Trash2 size={13} /> Eliminar aula
-                      </button>
-                    ) : <span />}
-                    <button type="submit" disabled={!editRoomId || roomSubmitting}
-                      className="btn btn-primary"
-                    >
-                      {roomSubmitting
-                        ? <><RefreshCw size={13} className="animate-spin" /> Procesando…</>
-                        : <><Pencil size={13} /> Revisar y guardar</>}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-            </div>
-          </div>
-
-          {/* ── Right column: Sensores ───────────────────────────────────────── */}
-          <div className="surface overflow-hidden flex flex-col h-full">
-
-            {/* Card header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-              <h2 className="flex items-center gap-2 text-slate-100 text-sm font-semibold">
-                <Cpu size={15} className="text-slate-400 shrink-0" />
-                Sensores
-                <span className="text-slate-500 font-normal text-xs">(Hardware IoT)</span>
-              </h2>
-              <TabBar
-                active={sensorTab}
-                onChange={v => { setSensorTab(v as SensorTab); setEditSensorModalOpen(false) }}
-                tabs={[
-                  { key: 'register', label: 'Registrar', icon: <PlusCircle size={11} /> },
-                  { key: 'edit',     label: 'Editar',     icon: <Pencil size={11} /> },
-                ]}
-              />
-            </div>
-
-            <div className="p-5 flex flex-col flex-1 overflow-hidden">
-
-              {/* ── Registrar Sensor ──────────────────────────────────────── */}
-              {sensorTab === 'register' && (
-                <form onSubmit={handleRegisterSensor} className="flex flex-col flex-1 justify-between overflow-hidden">
-                  <div className="flex-1 min-h-0 overflow-y-auto pr-2 space-y-4">
-                    <div>
-                      <label className={labelCls}>ID del Sensor</label>
-                      <input type="text" required placeholder="ej. sensor-lab-101-a"
-                        value={regSensorForm.id}
-                        onChange={e => setRegSensorForm(f => ({ ...f, id: e.target.value }))}
-                        className={inputCls}
-                      />
-                    </div>
-                    <div>
-                      {rooms.length === 0 ? (
-                        <div className="flex items-center gap-2 text-amber-400 text-sm bg-amber-900/20 border border-amber-500/30 rounded-lg px-3 py-2.5">
-                          <AlertCircle size={14} className="shrink-0" />
-                          No hay aulas registradas. Registra una antes de añadir sensores.
-                        </div>
-                      ) : (
-                        <SearchableSelect
-                          options={roomOptions}
-                          value={regSensorForm.room_id}
-                          onChange={v => setRegSensorForm(f => ({ ...f, room_id: v }))}
-                          placeholder="Selecciona un aula…"
-                          label="Aula Asignada"
-                          icon={<DoorOpen size={16} />}
-                        />
-                      )}
-                    </div>
-                    <div className="flex items-start gap-2 bg-slate-900/50 border border-slate-700/60 rounded-lg px-3 py-2.5">
-                      <Info size={13} className="text-slate-500 shrink-0 mt-0.5" />
-                      <p className="text-xs text-slate-400">
-                        Sensores nuevos se inicializan{' '}
-                        <strong className="text-slate-300">apagados y sin control AC</strong>.
-                        Actívalos desde el Dashboard del aula tras la instalación física.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="pt-4 border-t border-slate-700/50 flex justify-end">
-                    <button type="submit"
-                      disabled={sensorSubmitting || !regSensorForm.room_id || rooms.length === 0}
-                      className="btn btn-primary"
-                    >
-                      {sensorSubmitting
-                        ? <><RefreshCw size={13} className="animate-spin" /> Guardando…</>
-                        : <><PlusCircle size={13} /> Registrar Sensor</>}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* ── Editar Sensor ─────────────────────────────────────────── */}
-              {sensorTab === 'edit' && (
-                <form onSubmit={openEditSensorModal} className="flex flex-col flex-1 justify-between overflow-hidden">
-                  <div className="flex-1 min-h-0 overflow-y-auto pr-2 space-y-4">
-                    <SearchableSelect
-                      options={sensorOptions}
-                      value={editSensorId}
-                      onChange={selectEditSensor}
-                      placeholder="Busca el sensor a reasignar…"
-                      label="Seleccionar Sensor"
-                      icon={<Radio size={16} />}
-                    />
-                    {!editSensorId && (
-                      <p className="text-xs text-slate-500">
-                        Selecciona un sensor para ver su aula actual y reasignarlo.
-                      </p>
-                    )}
-                    {editSensorId && (
-                      <>
-                        <p className="text-xs text-emerald-400 flex items-center gap-1">
-                          <CheckCircle2 size={11} /> Sensor {editSensorId} seleccionado.
-                        </p>
-
-                        {/* Current assignment */}
-                        <div className="bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3">
-                          <p className="text-xs text-slate-500 mb-1">Aula actual</p>
-                          <p className="text-slate-200 font-medium text-sm">
-                            {currentDevice?.room_name ?? currentDevice?.room_id ?? '—'}
-                            {currentDevice?.room_name && (
-                              <span className="ml-2 text-xs text-slate-500">({currentDevice.room_id})</span>
-                            )}
-                          </p>
-                          <p className={`text-xs mt-1 ${currentDevice?.is_active ? 'text-emerald-400' : 'text-slate-500'}`}>
-                            {currentDevice?.is_active ? 'Activo' : 'Inactivo'}
-                            {' · '}
-                            {currentDevice?.control_enabled ? 'Control AC habilitado' : 'Control AC deshabilitado'}
-                          </p>
-                        </div>
-
-                        {/* New sensor ID */}
-                        <div>
-                          <label className={labelCls}>ID del Sensor</label>
-                          <input type="text" required
-                            value={editSensorNewId}
-                            onChange={e => setEditSensorNewId(e.target.value)}
-                            className={inputCls}
-                          />
-                        </div>
-
-                        {/* New room picker — includes "(Ninguna)" to detach sensor */}
-                        <SearchableSelect
-                          options={sensorRoomOptions}
-                          value={editSensorRoomId}
-                          onChange={v => setEditSensorRoomId(v)}
-                          placeholder="Nueva aula destino…"
-                          label="Nueva Aula"
-                          icon={<DoorOpen size={16} />}
-                        />
-                      </>
-                    )}
-                  </div>
-                  <div className="pt-4 border-t border-slate-700/50 flex items-center justify-between">
-                    {editSensorId ? (
-                      <button
-                        type="button"
-                        onClick={() => { setDeleteSensorConfirm(''); setDeleteSensorModalOpen(true) }}
-                        className="flex items-center gap-1.5 text-sm text-red-500 hover:bg-red-500/10 px-3 py-2 rounded-lg transition-colors"
-                      >
-                        <Trash2 size={13} /> Eliminar sensor
-                      </button>
-                    ) : <span />}
-                    <button type="submit"
-                      disabled={!editSensorId || sensorSubmitting || ((editSensorRoomId || null) === (currentDevice?.room_id ?? null) && editSensorNewId.trim() === editSensorId)}
-                      className="btn btn-primary"
-                    >
-                      {sensorSubmitting
-                        ? <><RefreshCw size={13} className="animate-spin" /> Procesando…</>
-                        : <><Pencil size={13} /> Revisar y reasignar</>}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-            </div>
-          </div>
-
-        </div>
-        </>
-      )}
-
-      {/* ── Modal: Confirmar edición de aula ──────────────────────────────── */}
-      {editRoomModalOpen && pendingRoom && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="surface rounded-lg shadow-2xl w-full max-w-2xl">
-
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <Pencil size={16} className="text-blue-400" /> Confirmar Actualización de Aula
-              </h3>
-              <button onClick={() => setEditRoomModalOpen(false)}
-                className="text-slate-400 hover:text-slate-100 transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="surface-inset p-4 space-y-4">
-                <p className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-slate-500 inline-block" /> Datos Actuales
-                </p>
-                <DataRow label="ID"                   value={pendingRoom.original.id} />
-                <DataRow label="Nombre"               value={pendingRoom.original.name} />
-                <DataRow label="Capacidad"            value={`${pendingRoom.original.max_capacity} personas`} />
-                <DataRow label="Temperatura Objetivo" value={`${pendingRoom.original.target_temp} °C`} />
-                <DataRow label="Ubicación" value={locationLabel(pendingRoom.original)} />
-              </div>
-              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 space-y-4">
-                <p className="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> Nuevos Datos
-                </p>
-                <DataRow
-                  label="ID"
-                  value={pendingRoom.form.new_id || pendingRoom.original.id}
-                  changed={!!pendingRoom.form.new_id && pendingRoom.form.new_id !== pendingRoom.original.id}
-                />
-                <DataRow label="Nombre" value={pendingRoom.form.name}
-                  changed={pendingRoom.form.name !== pendingRoom.original.name}
-                />
-                <DataRow label="Capacidad" value={`${pendingRoom.form.max_capacity} personas`}
-                  changed={Number(pendingRoom.form.max_capacity) !== pendingRoom.original.max_capacity}
-                />
-                <DataRow label="Ubicación"
-                  value={locationLabel({ building: pendingRoom.form.building || null, floor: pendingRoom.form.floor === '' ? null : Number(pendingRoom.form.floor) })}
-                  changed={(pendingRoom.form.building || null) !== (pendingRoom.original.building ?? null) || (pendingRoom.form.floor === '' ? null : Number(pendingRoom.form.floor)) !== (pendingRoom.original.floor ?? null)}
-                />
-                <DataRow label="Temperatura Objetivo" value={`${pendingRoom.form.target_temp} °C`}
-                  changed={Number(pendingRoom.form.target_temp) !== pendingRoom.original.target_temp}
-                />
-              </div>
-            </div>
-
-            {/* Cascade-impact options — only when ID is being renamed */}
-            {pendingRoom && !!pendingRoom.form.new_id && pendingRoom.form.new_id !== pendingRoom.original.id && (
-              <div className="mx-6 mb-4 bg-amber-950/40 border border-amber-700/50 rounded-lg px-4 py-3 space-y-3">
-                <p className="text-xs font-semibold text-amber-400 flex items-center gap-1.5">
-                  <TriangleAlert size={12} className="shrink-0" /> Actualización en cascada del cambio de ID
-                </p>
-                <p className="text-xs text-amber-300/70 leading-relaxed">
-                  Desmarca para dejar esos registros atados al ID anterior — quedarán como huérfanos históricos de auditoría.
-                </p>
-                <label className="flex items-center gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={cascadeReservations}
-                    onChange={e => setCascadeReservations(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded border-amber-600 bg-amber-900/30 accent-amber-500 shrink-0 cursor-pointer"
-                  />
-                  <span className="text-xs text-amber-200 select-none">
-                    Modificar el ID en todas las reservas asociadas a esta aula.
-                  </span>
-                </label>
-                <label className="flex items-center gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={cascadeSensors}
-                    onChange={e => setCascadeSensors(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded border-amber-600 bg-amber-900/30 accent-amber-500 shrink-0 cursor-pointer"
-                  />
-                  <span className="text-xs text-amber-200 select-none">
-                    Modificar la asociación de ID en todos los sensores instalados.
-                  </span>
-                </label>
-                {(!cascadeReservations || !cascadeSensors) && (
-                  <p className="text-xs text-slate-400 flex items-center gap-1.5 pt-1">
-                    <Info size={11} className="shrink-0 text-slate-500" />
-                    Los registros desmarcados conservarán el ID{' '}
-                    <span className="font-mono text-amber-400">{pendingRoom.original.id}</span>{' '}
-                    y serán accesibles via la auditoría de huérfanos.
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="flex items-center justify-end gap-3 px-6 pb-5">
-              <button type="button" onClick={() => setEditRoomModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
-              >
-                Cancelar
-              </button>
-              <button type="button" onClick={confirmEditRoom} disabled={roomSubmitting}
-                className="btn btn-primary"
-              >
-                {roomSubmitting
-                  ? <><RefreshCw size={13} className="animate-spin" /> Actualizando…</>
-                  : <><CheckCircle2 size={14} /> Sí, Guardar</>}
-              </button>
-            </div>
-          </div>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
+      <Pagination {...page} noun="aulas" />
+    </Card>
+  )
+}
 
-      {/* ── Modal: Eliminar Aula ──────────────────────────────────────────── */}
-      {deleteRoomModalOpen && editRoomId && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-red-900/60 rounded-xl shadow-2xl w-full max-w-lg">
+function RoomDialog({ original, onClose, onDelete, onSaved }: {
+  original: Room | null
+  onClose: () => void
+  onDelete: (r: Room) => void
+  onSaved: (msg: string) => void
+}) {
+  const [f, setF] = useState<RoomForm>(() => original ? {
+    id: original.id, name: original.name, building: original.building ?? '', floor: original.floor == null ? '' : String(original.floor),
+    max_capacity: String(original.max_capacity), target_temp: String(original.target_temp),
+  } : EMPTY_ROOM)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  // Rename: how many records move with the room. New room: history left by a deleted room with this code.
+  const [moving, setMoving] = useState<{ reservations_count: number; sensors_count: number } | null>(null)
+  const [orphans, setOrphans] = useState<{ reservations_count: number; sensors_count: number } | null>(null)
+  const [inheritOk, setInheritOk] = useState(false)
 
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <Trash2 size={16} className="text-red-500" /> Eliminar Aula Permanentemente
-              </h3>
-              <button onClick={() => setDeleteRoomModalOpen(false)}
-                className="text-slate-500 hover:text-slate-200 transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
+  const code = f.id.trim()
+  const renaming = !!original && code !== '' && code !== original.id
 
-            <div className="px-6 py-5 space-y-5">
+  useEffect(() => {
+    if (!renaming || !original) { setMoving(null); return }
+    api.get(`/admin/rooms/${encodeURIComponent(original.id)}/impact`).then(r => setMoving(r.data)).catch(() => setMoving(null))
+  }, [renaming, original])
 
-              {/* Impact — orphan info */}
-              <div className="flex items-start gap-3 bg-red-950/50 border border-red-800/50 rounded-lg px-4 py-3">
-                <TriangleAlert size={16} className="text-red-400 shrink-0 mt-0.5" />
-                {impactLoading ? (
-                  <p className="text-sm text-slate-400 flex items-center gap-2">
-                    <RefreshCw size={12} className="animate-spin" /> Calculando impacto…
-                  </p>
-                ) : (
-                  <div className="text-sm leading-relaxed space-y-1.5">
-                    <p className="text-red-300">
-                      <strong>Acción irreversible.</strong> La estructura del aula se eliminará de forma permanente.
-                    </p>
-                    {(roomImpact?.reservations_count ?? 0) > 0 && (
-                      <p className="text-amber-300">
-                        <span className="font-semibold">{roomImpact!.reservations_count} reserva{roomImpact!.reservations_count !== 1 ? 's' : ''}</span>{' '}
-                        quedarán como registros históricos huérfanos (auditoría).
-                      </p>
-                    )}
-                    {(roomImpact?.sensors_count ?? 0) > 0 && (
-                      <p className="text-amber-300">
-                        <span className="font-semibold">{roomImpact!.sensors_count} sensor{roomImpact!.sensors_count !== 1 ? 'es' : ''}</span>{' '}
-                        quedarán sin asignación de aula (hardware IoT preservado).
-                      </p>
-                    )}
-                    {(roomImpact?.reservations_count ?? 0) === 0 && (roomImpact?.sensors_count ?? 0) === 0 && (
-                      <p className="text-slate-400">Esta aula no tiene reservas ni sensores asociados.</p>
-                    )}
-                  </div>
-                )}
-              </div>
+  useEffect(() => {
+    setOrphans(null); setInheritOk(false)
+    if (original || !code) return
+    const t = setTimeout(() => {
+      api.get(`/admin/rooms/check-orphans/${encodeURIComponent(code)}`)
+        .then(r => setOrphans(r.data?.has_orphans ? r.data : null))
+        .catch(() => setOrphans(null))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [code, original])
 
-              {/* Confirmation input */}
-              <div>
-                <label className="field-label">
-                  Escribe el ID del aula para confirmar
-                </label>
-                <input
-                  type="text"
-                  placeholder={editRoomId}
-                  value={deleteRoomConfirm}
-                  onChange={e => setDeleteRoomConfirm(e.target.value)}
-                  className="field font-mono focus:border-red-500 focus:ring-red-500/40"
-                />
-              </div>
-            </div>
+  const problems: string[] = []
+  if (!code) problems.push('Indica el código del aula.')
+  if (!f.name.trim()) problems.push('Indica el nombre.')
+  if (!(Number(f.max_capacity) > 0)) problems.push('La capacidad debe ser mayor que 0.')
+  const t = Number(f.target_temp)
+  if (!(t >= 16 && t <= 30)) problems.push('La temperatura objetivo debe estar entre 16 y 30 °C.')
+  if (orphans && !inheritOk) problems.push('Confirma que la nueva aula heredará el historial existente.')
 
-            <div className="flex items-center justify-end gap-3 px-6 pb-5">
-              <button type="button" onClick={() => setDeleteRoomModalOpen(false)}
-                className="btn btn-secondary"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={confirmDeleteRoom}
-                disabled={roomSubmitting || deleteRoomConfirm !== editRoomId}
-                className="btn btn-danger"
-              >
-                {roomSubmitting
-                  ? <><RefreshCw size={13} className="animate-spin" /> Eliminando…</>
-                  : <><Trash2 size={13} /> Eliminar Definitivamente</>}
-              </button>
-            </div>
-          </div>
+  async function save() {
+    if (problems.length) return
+    setSaving(true); setErr(null)
+    const body = {
+      name: f.name.trim(),
+      max_capacity: Number(f.max_capacity),
+      target_temp: Number(f.target_temp),
+      building: f.building.trim() || null,
+      floor: f.floor === '' ? null : Number(f.floor),
+    }
+    try {
+      if (original) {
+        // Renaming always moves the room's reservations and sensors with it.
+        await api.put(`/admin/rooms/${encodeURIComponent(original.id)}`, { ...body, new_id: renaming ? code : undefined },
+          { params: { cascade_sensors: true, cascade_reservations: true } })
+        onSaved(renaming ? `Aula ${original.id} ahora es ${code}.` : `Aula ${code} actualizada.`)
+      } else {
+        await api.post('/admin/rooms', { id: code, ...body })
+        onSaved(`Aula ${code} creada. Registra su sensor en la pestaña Sensores.`)
+      }
+    } catch (e) {
+      setErr(friendly(e, 'No se pudo guardar el aula.'))
+    } finally { setSaving(false) }
+  }
+
+  const field = (key: keyof RoomForm, label: string, props: Record<string, unknown> = {}) => (
+    <label className="block">
+      <span className="field-label">{label}</span>
+      <input className={`field ${props.type === 'number' ? NUM_INPUT_MODS : ''}`} value={f[key]} onChange={e => setF({ ...f, [key]: e.target.value })} {...props} />
+    </label>
+  )
+
+  return (
+    <Dialog
+      title={original ? `Editar aula ${original.id}` : 'Nueva aula'}
+      onClose={onClose}
+      footer={<>
+        {original && <button className="btn btn-ghost text-red-300 hover:text-red-200" onClick={() => onDelete(original)}>Eliminar aula</button>}
+        <span className="flex-1" />
+        <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving || problems.length > 0}>
+          {saving && <RefreshCw size={14} className="animate-spin" />} {original ? 'Guardar cambios' : 'Crear aula'}
+        </button>
+      </>}
+    >
+      <form className="grid grid-cols-2 gap-3" onSubmit={e => { e.preventDefault(); save() }}>
+        {field('id', 'Código', { placeholder: 'ej. M601', maxLength: 20, autoFocus: !original })}
+        {field('name', 'Nombre', { placeholder: 'ej. M601 Laboratorio' })}
+        {field('building', 'Edificio', { placeholder: 'ej. M', maxLength: 10 })}
+        {field('floor', 'Piso', { type: 'number', placeholder: 'ej. 6', min: -5, max: 99 })}
+        {field('max_capacity', 'Capacidad (personas)', { type: 'number', min: 1 })}
+        {field('target_temp', 'Temperatura objetivo (°C)', { type: 'number', min: 16, max: 30, step: 0.5 })}
+        <button type="submit" className="hidden" />
+      </form>
+      <p className="mt-2 text-xs text-slate-500">
+        La IA decide con la temperatura objetivo. El nodo de A403 trabaja con 24 °C; usa el mismo valor para que la comparación Nodo vs IA sea justa.
+      </p>
+
+      {renaming && moving && (
+        <p className="mt-3 flex items-start gap-2 text-xs text-amber-300">
+          <AlertTriangle size={14} className="mt-px shrink-0" />
+          Se moverán {moving.reservations_count} reservas y {moving.sensors_count} {moving.sensors_count === 1 ? 'sensor' : 'sensores'} de {original!.id} a {code}.
+        </p>
+      )}
+      {orphans && (
+        <label className="mt-3 flex items-start gap-2 text-xs text-amber-300">
+          <input type="checkbox" className="mt-0.5 accent-amber-500" checked={inheritOk} onChange={e => setInheritOk(e.target.checked)} />
+          <span>
+            Existió antes un aula {code}: quedan {orphans.reservations_count} reservas y {orphans.sensors_count} sensores con ese código.
+            La nueva aula los heredará. Marca para confirmar.
+          </span>
+        </label>
+      )}
+      {err && <p className="mt-3 text-xs text-red-300">{err}</p>}
+      {problems.length > 0 && !(orphans && !inheritOk && problems.length === 1) && (
+        <p className="mt-3 text-xs text-slate-500">{problems[0]}</p>
+      )}
+    </Dialog>
+  )
+}
+
+function DeleteRoomDialog({ room, onClose, onDeleted, onError }: {
+  room: Room; onClose: () => void; onDeleted: () => void; onError: (msg: string) => void
+}) {
+  const [impact, setImpact] = useState<{ reservations_count: number; sensors_count: number } | null>(null)
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    api.get(`/admin/rooms/${encodeURIComponent(room.id)}/impact`).then(r => setImpact(r.data)).catch(() => setImpact({ reservations_count: 0, sensors_count: 0 }))
+  }, [room.id])
+
+  async function remove() {
+    setBusy(true)
+    try { await api.delete(`/admin/rooms/${encodeURIComponent(room.id)}`); onDeleted() }
+    catch (e) { onError(friendly(e, 'No se pudo eliminar el aula.')); onClose() }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <Dialog
+      size="sm"
+      title={`¿Eliminar el aula ${room.id}?`}
+      onClose={onClose}
+      footer={<>
+        <span className="flex-1" />
+        <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-danger" onClick={remove} disabled={busy || typed.trim() !== room.id}>
+          {busy && <RefreshCw size={14} className="animate-spin" />} Eliminar
+        </button>
+      </>}
+    >
+      {!impact ? <p className="text-sm text-slate-400">Calculando impacto…</p> : (
+        <p className="text-sm text-slate-300">
+          {impact.reservations_count || impact.sensors_count
+            ? <>Sus {impact.reservations_count} reservas y {impact.sensors_count} {impact.sensors_count === 1 ? 'sensor' : 'sensores'} se conservan como historial, pero quedarán sin aula. Sus horarios semanales se eliminan.</>
+            : 'El aula no tiene reservas ni sensores. Sus horarios semanales se eliminan.'}
+        </p>
+      )}
+      <label className="mt-3 block">
+        <span className="field-label">Escribe {room.id} para confirmar</span>
+        <input className="field font-mono" value={typed} onChange={e => setTyped(e.target.value)} placeholder={room.id} autoFocus />
+      </label>
+    </Dialog>
+  )
+}
+
+// ── Sensores ──────────────────────────────────────────────────────────────────
+type SensorFilter = 'all' | 'unassigned' | 'off' | 'silent'
+const STALE_MIN = 15
+
+function SensorsTab({ devices, rooms, latest, now, onEdit }: {
+  devices: Device[]; rooms: Record<string, Room>; latest: Record<string, StoredReading | null>; now: number; onEdit: (d: Device) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [show, setShow] = useState<SensorFilter>('all')
+  const silent = (d: Device) => {
+    const r = latest[d.sensor_id]
+    return !r || (now - parseUtc(r.timestamp).getTime()) / 60_000 > STALE_MIN
+  }
+  const q = query.trim().toLowerCase()
+  const list = devices
+    .filter(d => !q || d.sensor_id.toLowerCase().includes(q) || (d.room_id ?? '').toLowerCase().includes(q) || (d.room_name ?? '').toLowerCase().includes(q))
+    .filter(d => show === 'all' || (show === 'unassigned' && !d.room_id) || (show === 'off' && !d.is_active) || (show === 'silent' && silent(d)))
+    .sort((a, b) => {
+      const ra = a.room_id ? rooms[a.room_id] : undefined, rb = b.room_id ? rooms[b.room_id] : undefined
+      if (ra && rb) return compareRooms(ra, rb) || a.sensor_id.localeCompare(b.sensor_id)
+      return ra ? -1 : rb ? 1 : a.sensor_id.localeCompare(b.sensor_id)
+    })
+  const page = usePage(list, 15)
+  const counts = {
+    unassigned: devices.filter(d => !d.room_id).length,
+    off: devices.filter(d => !d.is_active).length,
+    silent: devices.filter(silent).length,
+  }
+
+  return (
+    <Card>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <label className="relative">
+          <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Sensor o aula…" className="field w-48 pl-8" aria-label="Buscar sensor" />
+        </label>
+        <div className="segmented">
+          {([
+            ['all', 'Todos'],
+            ['silent', `Sin datos recientes · ${counts.silent}`],
+            ['off', `Sin recibir datos · ${counts.off}`],
+            ['unassigned', `Sin aula · ${counts.unassigned}`],
+          ] as [SensorFilter, string][]).map(([k, label]) => (
+            <button key={k} className={`segmented-item ${show === k ? 'segmented-item-active' : ''}`} onClick={() => setShow(k)}>{label}</button>
+          ))}
+        </div>
+      </div>
+      {list.length === 0 ? (
+        <p className="py-4 text-sm text-slate-400">{devices.length ? 'Ningún sensor coincide.' : 'Todavía no hay sensores. Registra uno con "Nuevo sensor".'}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-sm">
+            <thead>
+              <tr className="table-head">
+                {['Sensor', 'Aula', 'Recibe datos', 'Controla el aire', 'Última lectura', ''].map(h => <th key={h} className="py-2 pr-4 font-normal">{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {page.rows.map(d => {
+                const room = d.room_id ? rooms[d.room_id] : undefined
+                return (
+                  <tr key={d.sensor_id} className="table-row cursor-pointer" onClick={() => onEdit(d)}>
+                    <td className="py-2 pr-4 font-mono text-xs text-slate-200">{d.sensor_id}</td>
+                    <td className="py-2 pr-4">
+                      {d.room_id
+                        ? <><Link to={`/room/${d.room_id}`} onClick={e => e.stopPropagation()} className="font-medium text-slate-100 hover:underline">{d.room_id}</Link>
+                            {room && <span className="ml-2 text-xs text-slate-400">{locationLabel(room)}</span>}</>
+                        : <Chip tone="warn">Sin aula</Chip>}
+                    </td>
+                    <td className="py-2 pr-4">{d.is_active ? <Chip tone="ok">Sí</Chip> : <Chip>No</Chip>}</td>
+                    <td className="py-2 pr-4">{d.control_enabled ? <Chip tone="ok">Sí</Chip> : <Chip>No</Chip>}</td>
+                    <td className="py-2 pr-4"><LastReading reading={latest[d.sensor_id]} now={now} /></td>
+                    <td className="py-2 text-right">
+                      <button className="btn btn-ghost py-1" onClick={e => { e.stopPropagation(); onEdit(d) }}><Pencil size={13} /> Editar</button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
+      <Pagination {...page} noun="sensores" />
+      <p className="mt-2 text-xs text-slate-500">
+        "Recibe datos" y "Controla el aire" se cambian desde la vista de cada aula, en Configuración.
+      </p>
+    </Card>
+  )
+}
 
-      {/* ── Modal: Confirmar reasignación de sensor ───────────────────────── */}
-      {editSensorModalOpen && pendingSensor && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="surface rounded-lg shadow-2xl w-full max-w-2xl">
+function SensorDialog({ original, rooms, devices, onClose, onDelete, onSaved }: {
+  original: Device | null
+  rooms: Room[]
+  devices: Device[]
+  onClose: () => void
+  onDelete: (d: Device) => void
+  onSaved: (msg: string) => void
+}) {
+  const [id, setId] = useState(original?.sensor_id ?? '')
+  const [roomId, setRoomId] = useState(original?.room_id ?? '')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const options = useMemo(() => [
+    ...(original ? [{ value: '__none__', label: 'Sin aula (desinstalado)', group: 'Sin asignar' }] : []),
+    ...roomOptions(rooms),
+  ], [rooms, original])
 
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <Radio size={16} className="text-blue-400" /> Confirmar Reasignación de Sensor
-              </h3>
-              <button onClick={() => setEditSensorModalOpen(false)}
-                className="text-slate-400 hover:text-slate-100 transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
+  const code = id.trim()
+  const taken = devices.some(d => d.sensor_id === code && d.sensor_id !== original?.sensor_id)
+  const problems: string[] = []
+  if (!code) problems.push('Indica el código del sensor.')
+  if (taken) problems.push('Ya existe un sensor con ese código.')
+  if (!original && !roomId) problems.push('Elige el aula donde está instalado.')
 
-            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="surface-inset p-4 space-y-4">
-                <p className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-slate-500 inline-block" /> Asignación Actual
-                </p>
-                <DataRow label="Sensor ID"    value={pendingSensor.original.sensor_id} />
-                <DataRow label="Aula Asignada" value={pendingSensor.original.room_name ?? pendingSensor.original.room_id ?? '(Sin asignar)'} />
-                <DataRow label="Estado"        value={pendingSensor.original.is_active ? 'Activo' : 'Inactivo'} />
-              </div>
-              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 space-y-4">
-                <p className="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> Nueva Asignación
-                </p>
-                <DataRow
-                  label="Sensor ID"
-                  value={pendingSensor.newSensorId}
-                  changed={pendingSensor.newSensorId !== pendingSensor.original.sensor_id}
-                />
-                <DataRow
-                  label="Aula Asignada"
-                  value={pendingSensor.newRoomName || '(Sin asignar)'}
-                  changed={(pendingSensor.newRoomId || null) !== (pendingSensor.original.room_id ?? null)}
-                />
-                <DataRow label="Estado" value={pendingSensor.original.is_active ? 'Activo' : 'Inactivo'} />
-              </div>
-            </div>
+  // Convention used by the node and MQTT ingest: sensor s-<room>.
+  function pickRoom(v: string) {
+    setRoomId(v)
+    if (!original && v && (!id || /^s-/.test(id))) setId(`s-${v}`)
+  }
 
-            <div className="flex items-center justify-end gap-3 px-6 pb-5">
-              <button type="button" onClick={() => setEditSensorModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
-              >
-                Cancelar
-              </button>
-              <button type="button" onClick={confirmEditSensor} disabled={sensorSubmitting}
-                className="btn btn-primary"
-              >
-                {sensorSubmitting
-                  ? <><RefreshCw size={13} className="animate-spin" /> Actualizando…</>
-                  : <><CheckCircle2 size={14} /> Sí, Reasignar</>}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+  async function save() {
+    if (problems.length) return
+    setSaving(true); setErr(null)
+    const target = roomId === '__none__' ? null : roomId || null
+    try {
+      if (original) {
+        await api.put(`/admin/sensors/${encodeURIComponent(original.sensor_id)}`, {
+          room_id: target,
+          ...(code !== original.sensor_id ? { new_id: code } : {}),
+        })
+        onSaved(`Sensor ${code} actualizado.`)
+      } else {
+        await api.post('/admin/sensors', { id: code, room_id: target })
+        onSaved(`Sensor ${code} registrado en ${target}. Actívalo desde la vista del aula cuando esté instalado.`)
+      }
+    } catch (e) {
+      setErr(friendly(e, 'No se pudo guardar el sensor.'))
+    } finally { setSaving(false) }
+  }
 
-      {/* ── Modal: Eliminar Sensor ────────────────────────────────────────── */}
-      {deleteSensorModalOpen && editSensorId && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-red-900/60 rounded-xl shadow-2xl w-full max-w-md">
+  return (
+    <Dialog
+      title={original ? `Editar sensor ${original.sensor_id}` : 'Nuevo sensor'}
+      onClose={onClose}
+      footer={<>
+        {original && <button className="btn btn-ghost text-red-300 hover:text-red-200" onClick={() => onDelete(original)}>Eliminar sensor</button>}
+        <span className="flex-1" />
+        <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving || problems.length > 0}>
+          {saving && <RefreshCw size={14} className="animate-spin" />} {original ? 'Guardar cambios' : 'Registrar sensor'}
+        </button>
+      </>}
+    >
+      <div className="space-y-3">
+        <SearchableSelect label="Aula" options={options} value={roomId} onChange={pickRoom} placeholder="Busca el aula…" maxVisibleItems={6} />
+        <label className="block">
+          <span className="field-label">Código del sensor</span>
+          <input className="field font-mono" value={id} onChange={e => setId(e.target.value)} placeholder="ej. s-M601" />
+          <span className="mt-1 block text-xs text-slate-500">El nodo publica con el código s-&lt;aula&gt; (por ejemplo s-A403). Usa ese formato para que sus lecturas se asocien al aula.</span>
+        </label>
+        {!original && <p className="text-xs text-slate-500">Se registra sin recibir datos ni controlar el aire, hasta que lo actives desde la vista del aula.</p>}
+        {err && <p className="text-xs text-red-300">{err}</p>}
+        {problems.length > 0 && <p className="text-xs text-slate-500">{problems[0]}</p>}
+      </div>
+    </Dialog>
+  )
+}
 
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <Trash2 size={16} className="text-red-500" /> Eliminar Sensor Permanentemente
-              </h3>
-              <button onClick={() => setDeleteSensorModalOpen(false)}
-                className="text-slate-500 hover:text-slate-200 transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="px-6 py-5 space-y-5">
-              <div className="flex items-start gap-3 bg-red-950/50 border border-red-800/50 rounded-lg px-4 py-3">
-                <TriangleAlert size={16} className="text-red-400 shrink-0 mt-0.5" />
-                <p className="text-sm text-red-300 leading-relaxed">
-                  <strong>Advertencia:</strong> El sensor{' '}
-                  <span className="font-mono text-red-200">{editSensorId}</span>{' '}
-                  será eliminado de la base de datos. Las lecturas históricas en MongoDB se
-                  conservan como auditoría física.
-                </p>
-              </div>
-
-              <div>
-                <label className="field-label">
-                  Escribe el ID del sensor físico para confirmar
-                </label>
-                <input
-                  type="text"
-                  placeholder={editSensorId}
-                  value={deleteSensorConfirm}
-                  onChange={e => setDeleteSensorConfirm(e.target.value)}
-                  className="field font-mono focus:border-red-500 focus:ring-red-500/40"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 px-6 pb-5">
-              <button type="button" onClick={() => setDeleteSensorModalOpen(false)}
-                className="btn btn-secondary"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={confirmDeleteSensor}
-                disabled={sensorSubmitting || deleteSensorConfirm !== editSensorId}
-                className="btn btn-danger"
-              >
-                {sensorSubmitting
-                  ? <><RefreshCw size={13} className="animate-spin" /> Eliminando…</>
-                  : <><Trash2 size={13} /> Eliminar Definitivamente</>}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Modal: Herencia de huérfanos al registrar aula ───────────────── */}
-      {orphanWarningOpen && orphanData && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-amber-700/60 rounded-xl shadow-2xl w-full max-w-lg">
-
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <TriangleAlert size={16} className="text-amber-400" /> Historial Persistente Detectado
-              </h3>
-              <button
-                onClick={() => { setOrphanWarningOpen(false); setOrphanData(null) }}
-                className="text-slate-500 hover:text-slate-200 transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="px-6 py-5 space-y-5">
-
-              <div className="bg-amber-950/40 border border-amber-700/50 rounded-lg px-4 py-4 space-y-2">
-                <p className="text-sm text-amber-200 leading-relaxed">
-                  <span className="font-semibold text-amber-300">⚠ ATENCIÓN:</span>{' '}
-                  El ID de aula{' '}
-                  <span className="font-mono text-white bg-slate-800 px-1.5 py-0.5 rounded text-xs">{regRoomForm.id.trim()}</span>{' '}
-                  cuenta con historial persistente en el sistema.
-                </p>
-                <div className="flex gap-4 pt-1">
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="font-semibold text-amber-300">{orphanData.reservations_count}</span>
-                    <span className="text-amber-200/70">reserva{orphanData.reservations_count !== 1 ? 's' : ''} huérfana{orphanData.reservations_count !== 1 ? 's' : ''}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="font-semibold text-amber-300">{orphanData.sensors_count}</span>
-                    <span className="text-amber-200/70">sensor{orphanData.sensors_count !== 1 ? 'es' : ''} huérfano{orphanData.sensors_count !== 1 ? 's' : ''}</span>
-                  </div>
-                </div>
-                <p className="text-xs text-amber-300/70 leading-relaxed pt-1">
-                  Si continúas, estos elementos se vincularán automáticamente al aula nueva al compartir el mismo ID.
-                </p>
-              </div>
-
-              <div>
-                <label className="field-label">
-                  Escribe el ID del aula para confirmar la re-asociación o modifica el ID en el formulario anterior para evitarlo
-                </label>
-                <input
-                  type="text"
-                  placeholder={regRoomForm.id.trim()}
-                  value={orphanConfirm}
-                  onChange={e => setOrphanConfirm(e.target.value)}
-                  className="w-full bg-black border border-amber-700/50 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/40 transition placeholder-slate-600 font-mono"
-                  autoFocus
-                />
-              </div>
-
-            </div>
-
-            <div className="flex items-center justify-end gap-3 px-6 pb-5">
-              <button
-                type="button"
-                onClick={() => { setOrphanWarningOpen(false); setOrphanData(null) }}
-                className="btn btn-secondary"
-              >
-                Cancelar — modificar ID
-              </button>
-              <button
-                type="button"
-                onClick={confirmOrphanInheritance}
-                disabled={orphanConfirm !== regRoomForm.id.trim() || roomSubmitting}
-                className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-amber-600 hover:bg-amber-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed rounded-lg transition-colors"
-              >
-                {roomSubmitting
-                  ? <><RefreshCw size={13} className="animate-spin" /> Creando…</>
-                  : <><CheckCircle2 size={14} /> Aceptar y Enlazar</>}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-    </div>
+function DeleteSensorDialog({ device, onClose, onDeleted, onError }: {
+  device: Device; onClose: () => void; onDeleted: () => void; onError: (msg: string) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  async function remove() {
+    setBusy(true)
+    try { await api.delete(`/admin/sensors/${encodeURIComponent(device.sensor_id)}`); onDeleted() }
+    catch (e) { onError(friendly(e, 'No se pudo eliminar el sensor.')); onClose() }
+    finally { setBusy(false) }
+  }
+  return (
+    <Dialog
+      size="sm"
+      title={`¿Eliminar el sensor ${device.sensor_id}?`}
+      onClose={onClose}
+      footer={<>
+        <span className="flex-1" />
+        <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-danger" onClick={remove} disabled={busy}>{busy && <RefreshCw size={14} className="animate-spin" />} Eliminar</button>
+      </>}
+    >
+      <p className="text-sm text-slate-300">
+        Sus lecturas pasadas se conservan. Si el nodo sigue publicando con este código, sus nuevas lecturas se guardarán sin aula y sin decisión de la IA.
+      </p>
+    </Dialog>
   )
 }
