@@ -253,7 +253,7 @@ export default function Overview() {
                     >
                       {isOpen ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />}
                       <span className="text-sm font-semibold text-white">{buildingLabel(g.building || null)}</span>
-                      <span className="text-xs text-slate-400">{groupRows.length} aulas</span>
+                      <span className="text-xs text-slate-400">{groupRows.length} {groupRows.length === 1 ? 'aula' : 'aulas'}</span>
                       <span className="ml-auto flex flex-wrap justify-end gap-1.5">
                         {c('alert') > 0 && <Chip tone="alert">{c('alert')} en alerta</Chip>}
                         {c('warn') > 0 && <Chip tone="warn">{c('warn')} en atención</Chip>}
