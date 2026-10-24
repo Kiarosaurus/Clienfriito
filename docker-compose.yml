@@ -41,6 +41,21 @@ services:
       retries: 10
       start_period: 20s
 
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: ccs_mosquitto
+    restart: unless-stopped
+    ports:
+      # Abiertos (no loopback): el ESP32 simulado llega por host.wokwi.internal y,
+      # con hardware real, el nodo entra por la red local. Solo desarrollo: el broker
+      # acepta conexiones anonimas (ver mqtt/mosquitto.conf).
+      - "1883:1883"   # MQTT (ESP32, backend)
+      - "9001:9001"   # MQTT sobre WebSocket (monitor del nodo)
+    volumes:
+      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    networks:
+      - ccs_net
+
   backend:
     build: ./backend
     container_name: ccs_backend
