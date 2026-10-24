@@ -28,7 +28,7 @@ Los une **MQTT**: el nodo publica su telemetría y el backend la recibe, la guar
 | Carpeta | Qué es |
 |---|---|
 | [`hardware/firmware/`](hardware/firmware/) | **Firmware del ESP32** y circuito de Wokwi ([guía del nodo](hardware/firmware/README.md)) |
-| [`hardware/sistema.py`](hardware/sistema.py) | Puerta de enlace anterior (Arduino UNO + cámara); queda para el conteo con cámara |
+| [`hardware/camara/sistema.py`](hardware/camara/sistema.py) | Puerta de enlace anterior (Arduino UNO + cámara); queda para el conteo con cámara |
 | [`infra/mqtt/`](infra/mqtt/) | Configuración de **Mosquitto** |
 | [`backend/`](backend/) | API FastAPI. La ingesta MQTT está en [`app/services/mqtt_ingest.py`](backend/app/services/mqtt_ingest.py) |
 | [`frontend/`](frontend/) | Dashboard React. El monitor del nodo está en [`public/monitor/`](frontend/public/monitor/index.html) |

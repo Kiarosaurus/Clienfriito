@@ -3,7 +3,7 @@
 **Proyecto:** Climate Cognitive System (CCS)
 **Fecha de revisión:** 2026-09-01
 **Alcance:** exclusivamente la Sección 1 del documento `CS5055_Proyectos262.pdf` (1.1 Requisitos Técnicos Mínimos, 1.2 Proyectos No Aceptados, 1.3 Propuestas Sugeridas).
-**Base de evidencia:** código del repositorio en `main` (commit `51853cc`), `hardware/sistema.py`, `hardware/README.md`, `backend/app/`, e `informe/informe_ICC_Climate_system.pdf`.
+**Base de evidencia:** código del repositorio en `main` (commit `51853cc`), `hardware/camara/sistema.py`, `hardware/camara/README.md`, `backend/app/`, e `informe/informe_ICC_Climate_system.pdf`.
 
 ---
 
@@ -28,14 +28,14 @@ El riesgo no es que el proyecto sea malo; es que **la rúbrica de la Sección 1 
 
 | Sensor | Variable | Evidencia |
 |---|---|---|
-| DHT11 | temperatura (°C), humedad (%) | `hardware/sistema.py:253-254`, `hardware/README.md` |
-| MQ-135 | CO₂-proxy (ppm) → ocupación real | `hardware/sistema.py:262` |
-| MQ-7 | CO (ADC → ppm por curva de datasheet) | `hardware/sistema.py:60-77` |
-| Cámara + MediaPipe | aforo por cruce de línea virtual | `hardware/sistema.py:125-235` |
+| DHT11 | temperatura (°C), humedad (%) | `hardware/camara/sistema.py:253-254`, `hardware/camara/README.md` |
+| MQ-135 | CO₂-proxy (ppm) → ocupación real | `hardware/camara/sistema.py:262` |
+| MQ-7 | CO (ADC → ppm por curva de datasheet) | `hardware/camara/sistema.py:60-77` |
+| Cámara + MediaPipe | aforo por cruce de línea virtual | `hardware/camara/sistema.py:125-235` |
 
 Tres módulos físicos independientes, más un cuarto canal de percepción por visión. Se supera el mínimo con holgura.
 
-**Observación crítica:** el MQ-7 tiene calibración documentada (`MQ7_R0`, procedimiento de aire limpio en `hardware/README.md`), lo cual es una fortaleza real y diferencial. El MQ-135, en cambio, se consume como `air_quality_ppm` **sin curva de calibración propia** — se está tratando una lectura cruda de calidad de aire como si fuera CO₂ en ppm, y sobre ese número se apoya el balance de masa que estima la ocupación real. Es el eslabón cuantitativamente más frágil de toda la cadena, y un docente de IoT lo va a preguntar. Documenten la conversión o degrádenlo explícitamente a "proxy relativo, no ppm absolutos".
+**Observación crítica:** el MQ-7 tiene calibración documentada (`MQ7_R0`, procedimiento de aire limpio en `hardware/camara/README.md`), lo cual es una fortaleza real y diferencial. El MQ-135, en cambio, se consume como `air_quality_ppm` **sin curva de calibración propia** — se está tratando una lectura cruda de calidad de aire como si fuera CO₂ en ppm, y sobre ese número se apoya el balance de masa que estima la ocupación real. Es el eslabón cuantitativamente más frágil de toda la cadena, y un docente de IoT lo va a preguntar. Documenten la conversión o degrádenlo explícitamente a "proxy relativo, no ppm absolutos".
 
 ---
 
@@ -46,8 +46,8 @@ Tres módulos físicos independientes, más un cuarto canal de percepción por v
 Evidencia:
 
 - No hay ningún archivo `.ino`, `.cpp` ni sketch de Arduino versionado. El firmware del nodo no está en el repo.
-- `hardware/sistema.py` es **unidireccional**: hilo serial → lee; hilo cámara → cuenta; hilo combinado → `POST`. No hay ninguna escritura hacia el puerto serial (`ser.write(...)` no aparece en las 337 líneas del archivo). El Arduino nunca recibe un comando.
-- La respuesta del servidor con `cognitive_action` **solo se imprime en consola** (`hardware/sistema.py:288-289`): `print(f"[POST] OK 201 — ac_status={accion}")`. Se descarta.
+- `hardware/camara/sistema.py` es **unidireccional**: hilo serial → lee; hilo cámara → cuenta; hilo combinado → `POST`. No hay ninguna escritura hacia el puerto serial (`ser.write(...)` no aparece en las 337 líneas del archivo). El Arduino nunca recibe un comando.
+- La respuesta del servidor con `cognitive_action` **solo se imprime en consola** (`hardware/camara/sistema.py:288-289`): `print(f"[POST] OK 201 — ac_status={accion}")`. Se descarta.
 - El endpoint `PUT /sensors/{id}/control` (`backend/app/routes/sensors.py:277-330`) **no controla ningún dispositivo**: valida rol y reserva, y luego escribe dos flags booleanos (`is_active`, `control_enabled`) en PostgreSQL. Es control de *permisos de ingesta*, no de actuación.
 - El `cognitive_action` (`ON` / `PRE-COOLING` / `STANDBY` / `DISABLED`) es un string persistido en MongoDB y renderizado en el dashboard. Nada más.
 - El propio informe lo reconoce: la tabla de hardware marca el emisor IR con asterisco — *"Actuador de fase 2: en la versión inicial la acción cognitiva se visualiza en la app; el envío IR real al A/C es funcionalidad opcional"* — y la sección de alcance lista "Control real del A/C por emisor IR" como **fuera de alcance**.
@@ -66,7 +66,7 @@ El enlace nodo↔gateway es **USB-Serial cableado**:
 Arduino UNO ──[USB Serial 9600 baud]──► laptop (sistema.py) ──[HTTPS]──► backend
 ```
 
-`hardware/sistema.py:29-30`: `SERIAL_PORT = 'COM6'`, `BAUD_RATE = 9600`.
+`hardware/camara/sistema.py:29-30`: `SERIAL_PORT = 'COM6'`, `BAUD_RATE = 9600`.
 
 El único tramo inalámbrico es el WiFi de la laptop hacia `kiarosaurus.me`. **Eso no cuenta como la "etapa" que pide el enunciado**, por dos razones:
 
@@ -99,7 +99,7 @@ No hay app móvil. El requisito es explícitamente opcional. No es prioridad fre
 
 ### 2.6 Enclosure / Case — impresión 3D o materiales reciclados → ❌ **NO CUMPLE**
 
-Cero evidencia en todo el repositorio: no hay archivos `.stl`, `.step`, `.f3d`, ni fotos, ni una sección de carcasa en `hardware/README.md`, ni mención en el informe. El enunciado indica además que *"se evaluará el acabado visual y profesional"*, es decir, no basta con existir: se califica la calidad.
+Cero evidencia en todo el repositorio: no hay archivos `.stl`, `.step`, `.f3d`, ni fotos, ni una sección de carcasa en `hardware/camara/README.md`, ni mención en el informe. El enunciado indica además que *"se evaluará el acabado visual y profesional"*, es decir, no basta con existir: se califica la calidad.
 
 Es el incumplimiento más **barato de resolver** de los tres, y el que más impacto visual tiene en la demostración de la S15.
 
@@ -167,7 +167,7 @@ backend (cognitive_action) → respuesta HTTP → gateway → enlace inalámbric
 
 Hoy faltan los últimos cuatro eslabones. Como mínimo hay que:
 
-1. Consumir `cognitive_action.ac_status` de la respuesta del `POST` en lugar de solo imprimirlo (`hardware/sistema.py:288`).
+1. Consumir `cognitive_action.ac_status` de la respuesta del `POST` en lugar de solo imprimirlo (`hardware/camara/sistema.py:288`).
 2. Abrir el canal descendente hacia el nodo (ver §5.4 — resuélvanlo junto con el requisito de comunicación inalámbrica).
 3. Escribir el firmware del nodo (que además **hoy no está versionado**) con la lógica de conmutación, y **subirlo al repositorio**.
 4. Conmutar la carga con **módulo de relé o MOSFET**, nunca directamente desde un pin del Arduino. Un ventilador de 12 V excede el límite de corriente de un pin GPIO y lo destruye. Si el ventilador es de 12 V, necesita fuente separada, masa común y diodo de retorno (flyback) por ser carga inductiva.
