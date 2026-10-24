@@ -1,6 +1,6 @@
 # Extended Documentation — Climate Cognitive System
 
-> Technical document covering architecture, design decisions and advanced mechanics implemented in the system. For the installation and deployment guide, see [README.md](./README.md). For the Spanish project report (course rubric), see [`informe/informe.pdf`](./informe/informe.pdf).
+> Technical document covering architecture, design decisions and advanced mechanics implemented in the system. For the installation and deployment guide, see [README.md](README.md). For the Spanish project report (course rubric), see [`informe/informe.pdf`](informe/informe.pdf).
 
 ---
 
@@ -90,7 +90,7 @@ Climate-Cognitive-System/
 │       ├── App.tsx
 │       ├── main.tsx
 │       └── types.ts
-├── database/
+├── infra/database/
 │   ├── postgres/init.sql
 │   └── mongo/init.js
 ├── ml_pipeline/
@@ -158,7 +158,7 @@ Climate-Cognitive-System/
 | `src/utils/sensorColors.ts` | **UI tokens** | Shared reading-level color thresholds used across tables and cards |
 | `src/utils/formStyles.ts` | **UI tokens** | `NUM_INPUT_MODS` — shared Tailwind modifiers stripping native number-input spinners (see §3.5) |
 
-### 2.3 `database/` — Database initialization
+### 2.3 `infra/database/` — Database initialization
 
 | File | Purpose |
 |---|---|
@@ -1008,4 +1008,4 @@ IoT reading (POST /sensors/)
 
 ---
 
-> For the installation guide and deployment commands, see [README.md](./README.md).
+> For the installation guide and deployment commands, see [README.md](README.md).

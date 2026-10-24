@@ -164,7 +164,7 @@ Climate-Cognitive-System/
 ├── informe/
 │   ├── informe.tex              # Spanish project report (rubric) → informe.pdf
 │   └── slides.tex               # Spanish presentation (beamer) → slides.pdf
-├── database/
+├── infra/database/
 │   ├── postgres/init.sql
 │   └── mongo/init.js
 ├── .github/workflows/ci.yml     # CI: backend unit tests + frontend build

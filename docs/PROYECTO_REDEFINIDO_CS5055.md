@@ -6,9 +6,9 @@
 
 **Equipo:** Brayan Eduardo Gomero Castillo · Kiara Alexandra Balcázar Santa Cruz · Rodrigo Dion Carlos Acosta
 **Aula de despliegue:** A403 — UTEC Barranco
-**Fuente de verdad del alcance:** [`informe/perfil_proyecto_CS5055.tex`](./informe/perfil_proyecto_CS5055.tex)
+**Fuente de verdad del alcance:** [`informe/perfil_proyecto_CS5055.tex`](informe/perfil_proyecto_CS5055.tex)
 **Rúbrica base:** `CS5055_Proyectos262.pdf`
-**Auditoría previa:** [`AUDITORIA_SECCION1_CS5055.md`](./AUDITORIA_SECCION1_CS5055.md)
+**Auditoría previa:** [`AUDITORIA_SECCION1_CS5055.md`](AUDITORIA_SECCION1_CS5055.md)
 **Retroalimentación del docente:** incorporada (sensores, actuadores, alcance de 8 semanas, presupuesto)
 **Fecha:** 2026-09-20
 

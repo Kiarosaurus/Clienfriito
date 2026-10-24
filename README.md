@@ -29,10 +29,10 @@ Los une **MQTT**: el nodo publica su telemetría y el backend la recibe, la guar
 |---|---|
 | [`hardware/firmware/`](hardware/firmware/) | **Firmware del ESP32** y circuito de Wokwi ([guía del nodo](hardware/firmware/README.md)) |
 | [`hardware/sistema.py`](hardware/sistema.py) | Puerta de enlace anterior (Arduino UNO + cámara); queda para el conteo con cámara |
-| [`mqtt/`](mqtt/) | Configuración de **Mosquitto** |
+| [`infra/mqtt/`](infra/mqtt/) | Configuración de **Mosquitto** |
 | [`backend/`](backend/) | API FastAPI. La ingesta MQTT está en [`app/services/mqtt_ingest.py`](backend/app/services/mqtt_ingest.py) |
 | [`frontend/`](frontend/) | Dashboard React. El monitor del nodo está en [`public/monitor/`](frontend/public/monitor/index.html) |
-| [`database/`](database/) | Scripts de inicio de PostgreSQL y MongoDB |
+| [`infra/database/`](infra/database/) | Scripts de inicio de PostgreSQL y MongoDB |
 | [`seed_data/`](seed_data/) | Datos semilla: aulas (incluida A403), sensores, horarios y lecturas históricas |
 | [`ml_pipeline/`](ml_pipeline/) | Entrenamiento del modelo de carga térmica |
 | [`tools/broker-local/`](tools/broker-local/) | Broker MQTT liviano para probar solo el nodo, **sin Docker** |

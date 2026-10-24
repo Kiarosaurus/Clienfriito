@@ -13,7 +13,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-climate_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./infra/database/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
       - ccs_net
     healthcheck:
@@ -31,7 +31,7 @@ services:
       - "127.0.0.1:27017:27017"
     volumes:
       - mongo_data:/data/db
-      - ./database/mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro
+      - ./infra/database/mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro
     networks:
       - ccs_net
     healthcheck:
@@ -48,11 +48,11 @@ services:
     ports:
       # Abiertos (no loopback): el ESP32 simulado llega por host.wokwi.internal y,
       # con hardware real, el nodo entra por la red local. Solo desarrollo: el broker
-      # acepta conexiones anonimas (ver mqtt/mosquitto.conf).
+      # acepta conexiones anonimas (ver infra/mqtt/mosquitto.conf).
       - "1883:1883"   # MQTT (ESP32, backend)
       - "9001:9001"   # MQTT sobre WebSocket (monitor del nodo)
     volumes:
-      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./infra/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     networks:
       - ccs_net
 
