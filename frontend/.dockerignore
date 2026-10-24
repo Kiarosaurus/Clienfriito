@@ -1,0 +1,6 @@
+# node_modules must come from npm ci INSIDE the image (alpine-native binaries);
+# a host node_modules copied over it breaks esbuild/rollup and bloats the context.
+node_modules/
+dist/
+# NOTE: .env.local is deliberately NOT ignored — it is how the production build
+# injects VITE_API_KEY (Vite reads it at build time; see ../.env.example).

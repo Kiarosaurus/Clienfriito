@@ -1,0 +1,28 @@
+# Production overlay for the kiarosaurus.me VM — contains NO secrets.
+#
+# Run with both files:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# or set once in the VM's .env and use plain `docker compose ...`:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+#
+# Only the frontend differs in production: TLS terminates in its nginx, so it
+# publishes 80/443 (instead of dev's 3000) and mounts the Let's Encrypt certs
+# plus frontend/nginx.prod.conf. Everything else (loopback DB/backend ports,
+# healthchecks, env_file) comes unchanged from the base file — which therefore
+# never needs local edits on the VM, keeping `git pull` clean.
+#
+# `!override` REPLACES the base ports list instead of merging with it
+# (requires docker compose >= 2.24; without it dev's 3000:80 would ALSO stay
+# published). `volumes` deliberately merges: it appends the certs and the
+# prod nginx config on top of the image's baked-in dev config.
+services:
+  frontend:
+    ports: !override
+      - "80:80"      # HTTP → redirected to HTTPS by nginx.prod.conf
+      - "443:443"    # HTTPS (Let's Encrypt)
+    volumes:
+      # Whole /etc/letsencrypt (not just live/): live/ holds symlinks into
+      # ../archive/, so a narrower mount would break them.
+      - /etc/letsencrypt:/etc/nginx/ssl:ro
+      # Runtime mount overrides the dev nginx.conf baked into the image.
+      - ./frontend/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
