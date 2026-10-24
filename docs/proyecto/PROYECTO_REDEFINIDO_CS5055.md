@@ -384,7 +384,7 @@ El campo `source` del comando indica qué lógica lo generó (`heuristic` o `mod
 
 **Bróker:** Mosquitto como quinto servicio del `docker-compose` existente, junto a `postgres`, `mongo`, `backend` y `frontend`. Autenticación por usuario/contraseña y TLS si el tiempo lo permite.
 
-**Migración desde el gateway actual.** `hardware/camara/sistema.py` no se elimina: pierde la responsabilidad de telemetría (que pasa al ESP32) y conserva la de visión por computadora, publicando el aforo a `ccs/A403/occupancy`. Separar ambos canales es lo correcto y además es lo que el docente pidió: el nodo ambiental deja de depender de una laptop encendida.
+**Migración desde el gateway actual.** `hardware/gateway/sistema.py` no se elimina: pierde la responsabilidad de telemetría (que pasa al ESP32) y conserva la de visión por computadora, publicando el aforo a `ccs/A403/occupancy`. Separar ambos canales es lo correcto y además es lo que el docente pidió: el nodo ambiental deja de depender de una laptop encendida.
 
 **Planes de contingencia de red — el mayor riesgo operativo**
 
@@ -670,7 +670,7 @@ Nomenclatura `RNF-##`.
 | RNF-35 | El estado del actuador y la lógica que lo controla deben ser comprensibles de un vistazo. | Indicador visual explícito |
 | RNF-36 | El informe final debe redactarse en LaTeX con plantilla ACM y referencias IEEE uniformes. | Revisión previa a la entrega |
 | RNF-37 | El índice de similitud del informe debe mantenerse por debajo del 20 %. | Reporte de Turnitin |
-| RNF-38 | El repositorio debe documentar el procedimiento de calibración de cada sensor químico. | `hardware/camara/README.md` |
+| RNF-38 | El repositorio debe documentar el procedimiento de calibración de cada sensor químico. | `hardware/gateway/README.md` |
 
 ---
 

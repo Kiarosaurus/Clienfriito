@@ -32,7 +32,7 @@ ccs/
 ├── frontend/             dashboard React; el monitor del nodo está en public/monitor/
 ├── hardware/
 │   ├── firmware/         firmware del ESP32 y circuito de Wokwi
-│   └── camara/           puerta de enlace anterior (Arduino UNO) y conteo con cámara
+│   └── gateway/          puerta de enlace anterior (Arduino UNO) y conteo con cámara
 ├── infra/
 │   ├── mqtt/             configuración de Mosquitto
 │   ├── database/         scripts de inicio de PostgreSQL y MongoDB

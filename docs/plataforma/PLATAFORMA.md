@@ -47,7 +47,7 @@ On top of the control loop, CCS provides:
 - **🔐 RBAC + JWT Auth** — Argon2 password hashing (self-healing admin seed), short-lived JWTs, and reservation-aware authorization (collaborators can only control devices in rooms they currently hold).
 - **🛡️ Resilient Startup** — PostgreSQL connection retries, idempotent in-code schema migrations (handling cases `create_all()` can't), and an auto-seeded admin account.
 - **🐳 Fully Containerized** — One `docker compose up` brings up PostgreSQL, MongoDB, the FastAPI backend, and the React frontend on an isolated bridge network with health checks.
-- **🔌 Physical Sensor Node** — An **Arduino UNO** (DHT11, MQ-135, MQ-7) streams JSON over Serial to a Python gateway ([`hardware/camara/sistema.py`](../../hardware/camara/sistema.py)) that also counts room occupancy with the laptop camera (**MediaPipe Face Detection**, virtual-line crossing) and POSTs the merged reading to the live backend.
+- **🔌 Physical Sensor Node** — An **Arduino UNO** (DHT11, MQ-135, MQ-7) streams JSON over Serial to a Python gateway ([`hardware/gateway/sistema.py`](../../hardware/gateway/sistema.py)) that also counts room occupancy with the laptop camera (**MediaPipe Face Detection**, virtual-line crossing) and POSTs the merged reading to the live backend.
 
 ---
 
@@ -346,7 +346,7 @@ curl -X POST http://localhost:8000/api/v1/chat/ \
 
 ## Physical Sensor Node
 
-The repo includes the client-side gateway for the real sensor node deployed in classroom **A403**: an **Arduino UNO** samples DHT11 (temperature/humidity), MQ-135 (CO₂ proxy) and MQ-7 (CO, raw ADC → ppm via datasheet curve) and streams JSON over USB-Serial every ~2 s; [`hardware/camara/sistema.py`](../../hardware/camara/sistema.py) merges in a **camera-based occupancy count** (MediaPipe Face Detection, virtual-line crossing) and POSTs the reading to the backend. Wiring, calibration and run instructions: [`hardware/camara/README.md`](../../hardware/camara/README.md).
+The repo includes the client-side gateway for the real sensor node deployed in classroom **A403**: an **Arduino UNO** samples DHT11 (temperature/humidity), MQ-135 (CO₂ proxy) and MQ-7 (CO, raw ADC → ppm via datasheet curve) and streams JSON over USB-Serial every ~2 s; [`hardware/gateway/sistema.py`](../../hardware/gateway/sistema.py) merges in a **camera-based occupancy count** (MediaPipe Face Detection, virtual-line crossing) and POSTs the reading to the backend. Wiring, calibration and run instructions: [`hardware/gateway/README.md`](../../hardware/gateway/README.md).
 
 ---
 

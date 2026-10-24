@@ -839,7 +839,7 @@ at train and serve time, not that it moves this synthetic target.
 ### To-Do
 
 - [x] Cloud deployment — live at **https://kiarosaurus.me** (Docker Compose + Nginx + Let's Encrypt)
-- [x] Physical sensor node — **Arduino UNO** (DHT11, MQ-135, MQ-7) + camera occupancy count via `hardware/camara/sistema.py` (section 2.5b)
+- [x] Physical sensor node — **Arduino UNO** (DHT11, MQ-135, MQ-7) + camera occupancy count via `hardware/gateway/sistema.py` (section 2.5b)
 - [ ] Calibration of the **infrared emitter** for real AC control
 - [ ] Setup of **persistent Ngrok tunnels** for the Watson Extension (custom extension in production)
 - [ ] Email notifications when approving/rejecting pending users
