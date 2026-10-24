@@ -814,7 +814,8 @@ async def reservations_occupancy(
             stats = await db["sensor_readings"].aggregate([
                 {"$match": {
                     "sensor_id": {"$in": sensors},
-                    "is_simulated": {"$ne": True},
+                    # Skip simulation-tool readings; node telemetry counts even from Wokwi.
+                    "$or": [{"is_simulated": {"$ne": True}}, {"node_state": {"$ne": None}}],
                     "timestamp": {"$gte": to_utc(r.start_time), "$lt": to_utc(r.end_time)},
                     "cognitive_action.actual_occupancy": {"$ne": None},
                 }},

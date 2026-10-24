@@ -24,6 +24,11 @@ from app.dependencies import get_current_user
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Readings produced by the dashboard's simulation tool: flagged simulated and without
+# a node decision. Node telemetry (node_state set) is kept even when the node itself
+# runs in a simulator (Wokwi), because it is the history RF-30/RF-31 are computed on.
+SIM_TOOL_READINGS = {"is_simulated": True, "node_state": None}
+
 
 # ============================================================================
 # BLOQUE NUEVO — todas estas clases (CognitiveActionOut, SensorReadingOut,
@@ -184,7 +189,7 @@ async def purge_simulated_readings(
     if current_user.role not in ("admin", "collaborator"):
         raise HTTPException(status_code=403, detail="Admin or collaborator role required.")
     try:
-        result = await db["sensor_readings"].delete_many({"is_simulated": True})
+        result = await db["sensor_readings"].delete_many(SIM_TOOL_READINGS)
     except PyMongoError as exc:
         logger.error("MongoDB unavailable purging simulated readings: %s", exc)
         raise HTTPException(status_code=503, detail="Database unavailable") from exc
@@ -232,7 +237,7 @@ async def get_co_emergencies(
     # the DB is clean within one polling cycle and the frontend receives nothing.
     fifteen_sec_ago = (now - timedelta(seconds=15)).strftime("%Y-%m-%dT%H:%M:%S.%f")
     purge = await db["sensor_readings"].delete_many(
-        {"is_simulated": True, "timestamp": {"$lt": fifteen_sec_ago}}
+        {**SIM_TOOL_READINGS, "timestamp": {"$lt": fifteen_sec_ago}}
     )
     if purge.deleted_count:
         print(f"Purging old simulation data...")
