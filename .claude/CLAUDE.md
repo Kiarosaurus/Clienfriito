@@ -31,3 +31,4 @@ El dashboard React (`frontend/`) usa **Tailwind** como único sistema visual. Al
    - **Texto:** tres tamaños (`text-xs`, `text-sm`, `text-xl`), máximo `font-semibold`, sin mayúsculas sostenidas.
    - **Forma:** `rounded-lg` en todo (modales `rounded-xl`, chips `rounded-full`); botones y campos de la misma altura; espaciado en múltiplos de 4 px.
 10. **Todo en español** y con estados en lenguaje de usuario ("Enfriando", "En espera"), no códigos internos (`COOLING`, `STANDBY`).
+11. **Diseñar para 100+ aulas.** Ninguna vista lista todas las aulas sin búsqueda, filtro, agrupación (edificio → piso) o paginación. El monitoreo muestra primero lo que requiere atención y resume lo normal en contadores ("panorama → filtrar → detalle a pedido"). Ninguna vista hace una petición por aula: el backend entrega los datos agregados.
