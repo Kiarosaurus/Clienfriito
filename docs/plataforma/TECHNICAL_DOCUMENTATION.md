@@ -16,7 +16,7 @@
    - 3.5 [Fluid Numeric Inputs and Minimalist UI](#35-fluid-numeric-inputs-and-minimalist-ui)
    - 3.6 [Fixing Flashes in the ROI Charts](#36-fixing-flashes-in-the-roi-charts)
    - 3.7 [Expected vs. Actual Occupancy (Feed-Forward + Feedback)](#37-expected-vs-actual-occupancy-feed-forward--feedback)
-   - 3.8 [UTEC Seed Dataset (seed_data)](#38-utec-seed-dataset-seed_data)
+   - 3.8 [UTEC Seed Dataset (seed-data)](#38-utec-seed-dataset-seed-data)
    - 3.9 [Exogenous Climate Driver and an ML Model That Beats the Baseline (Tier 2)](#39-exogenous-climate-driver-and-an-ml-model-that-beats-the-baseline-tier-2)
    - 3.10 [Per-Room Physical Metadata (Tier 3)](#310-per-room-physical-metadata-tier-3)
 4. [Project Milestones and Roadmap](#4-project-milestones-and-roadmap)
@@ -98,7 +98,7 @@ Climate-Cognitive-System/
 │   ├── extract_data.py
 │   ├── train_model.py
 │   └── data/
-├── ml/seed_data/
+├── ml/seed-data/
 │   ├── generate_dataset.py
 │   ├── DATASET_GUIDE.md
 │   └── output/            # (generated, not versioned)
@@ -174,7 +174,7 @@ Climate-Cognitive-System/
 | `train_model.py` | Trains a `HistGradientBoostingRegressor` with **early stopping** over `[temperature, hour_of_day, expected_occupancy, actual_occupancy, outdoor_temp, floor, volume_m3, ac_btu]`, uses a **chronological holdout** (last 20%) and reports **baselines** (mean + **occupancy-only** heuristic). Serializes a **bundle** `{model, features, room_id_map, metadata}` via `joblib` at `backend/app/ml/model.joblib` |
 | `data/` | Training / validation datasets + `room_map.json` |
 
-### 2.5 `ml/seed_data/` — Seed dataset (UTEC Barranco)
+### 2.5 `ml/seed-data/` — Seed dataset (UTEC Barranco)
 
 | File | Purpose |
 |---|---|
@@ -182,7 +182,7 @@ Climate-Cognitive-System/
 | `DATASET_GUIDE.md` | Usage, time window and attendance model |
 | `output/` | (dry-run) `sensor_readings.json` + `catalog.json` — reproducible, not versioned |
 
-See section [3.8](#38-utec-seed-dataset-seed_data) for the attendance-model detail.
+See section [3.8](#38-utec-seed-dataset-seed-data) for the attendance-model detail.
 
 ### 2.5b `hardware/` — Physical sensor node (classroom A403)
 
@@ -594,11 +594,11 @@ Each `cognitive_action` persisted in MongoDB now includes occupancy telemetry:
 
 ---
 
-### 3.8 UTEC Seed Dataset (seed_data)
+### 3.8 UTEC Seed Dataset (seed-data)
 
 **Purpose:** Populate the databases with a **realistic and reproducible** history of the UTEC Barranco campus (Lima), without relying on physical hardware, for demos and to feed the ML pipeline.
 
-**Scope** (`ml/seed_data/generate_dataset.py`):
+**Scope** (`ml/seed-data/generate_dataset.py`):
 
 - **Window:** Mon 2026-05-18 → Sun 2026-07-05 (~2 months).
 - **6 rooms** (A403, M601, M604, M1001, M802, M602), AC `target_temp = 20 °C`, sensor `s-<room>`.
@@ -626,8 +626,8 @@ people = floor + r.choice([0, 1, 2])
 **How to populate** (with the DBs up, ports on `localhost`):
 
 ```bash
-python ml/seed_data/generate_dataset.py --dry-run   # solo JSON en output/, sin tocar DB
-python ml/seed_data/generate_dataset.py --wipe      # limpia sensor_readings e inserta
+python ml/seed-data/generate_dataset.py --dry-run   # solo JSON en output/, sin tocar DB
+python ml/seed-data/generate_dataset.py --wipe      # limpia sensor_readings e inserta
 ```
 
 > ✅ **Use with ml/pipeline:** the seeded `sensor_readings` carry the real plan in
@@ -663,7 +663,7 @@ outdoor_temp(ts) = media_mensual[mes] + amplitud · cos(2π · (hora − 14) / 2
 
 - **Reproducible:** the same timestamp always yields the same temperature.
 - **Lima coast:** monthly means (winter ~17 °C, summer ~24 °C), low diurnal amplitude (~3 °C) due to the ocean effect.
-- **Single source:** both `ml/seed_data/generate_dataset.py` and `predictive_service.py` import this module — the climate assumption is defined in one place.
+- **Single source:** both `ml/seed-data/generate_dataset.py` and `predictive_service.py` import this module — the climate assumption is defined in one place.
 
 #### 3.9.2 Non-circular target
 
@@ -748,7 +748,7 @@ metadata** that does explain thermal behavior:
 
 - **No train/serve skew:** the metadata is static per room → available identically in
   training (by `room_id`) and inference (`room_profile.get_metadata`).
-- **Single source:** `seed_data`, `extract_data.py` and `predictive_service.py` import
+- **Single source:** `ml/seed-data`, `extract_data.py` and `predictive_service.py` import
   `room_profile`; the target's `thermal_factor` and the metadata features come from the
   same module, so the model **can recover** the factor from the metadata.
 
@@ -807,7 +807,7 @@ at train and serve time, not that it moves this synthetic target.
 - [x] ML Pipeline with `scikit-learn` — training, validation and `joblib` serialization
 - [x] Bootstrap heuristic as a **fallback** when `model.joblib` does not exist (`people × 0.05` °C of thermal load)
 - [x] **Actual vs. expected occupancy** — `actual_occupancy` estimation from CO₂ (`occupancy_service.py`) + feed-forward/feedback blend (`FEEDBACK_WEIGHT`) + persisted `occupancy_gap` (section 3.7)
-- [x] **UTEC seed dataset** — reproducible 2-month history with non-monotonic linear decline + coherent gap (`ml/seed_data/`, section 3.8)
+- [x] **UTEC seed dataset** — reproducible 2-month history with non-monotonic linear decline + coherent gap (`ml/seed-data/`, section 3.8)
 - [x] **ML pipeline hardening (Tier 1)** — real `expected_occupancy` from `cognitive_action` (D1), `room_code` feature (D5), **chronological holdout** (D3), mean/heuristic **baselines** (D4), **bundle** with metadata/`sha256`/metrics (D6), **early stopping** (D7)
 - [x] **Exogenous climate driver + model that beats the baseline (Tier 2)** — `climate_service.py` (deterministic Lima outdoor temperature), `outdoor_temp` feature, per-room thermal factor, non-circular target → `beats_baselines: true` (section 3.9)
 - [x] **Per-room physical metadata (Tier 3)** — `room_profile.py` replaces the opaque `room_code` with `floor`/`volume_m3`/`ac_btu`; single source of the `thermal_factor`; no train/serve skew (section 3.10)

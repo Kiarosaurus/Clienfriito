@@ -23,9 +23,9 @@ Climate: Lima coastal winter (May–Jul) — cool, overcast (garúa), high humid
 rooms held near a 20 °C A/C target.
 
 Usage (from project root, DB ports exposed on localhost):
-    python ml/seed_data/generate_dataset.py            # insert into Mongo + Postgres
-    python ml/seed_data/generate_dataset.py --wipe     # clear sensor_readings first
-    python ml/seed_data/generate_dataset.py --dry-run  # write JSON to ml/seed_data/output/, no DB
+    python ml/seed-data/generate_dataset.py            # insert into Mongo + Postgres
+    python ml/seed-data/generate_dataset.py --wipe     # clear sensor_readings first
+    python ml/seed-data/generate_dataset.py --dry-run  # write JSON to ml/seed-data/output/, no DB
 
 Env overrides: MONGO_URI, POSTGRES_URI
 """
@@ -38,7 +38,7 @@ import sys
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]  # ml/seed_data -> raiz
+ROOT = Path(__file__).resolve().parents[2]  # ml/seed-data -> raiz
 sys.path.insert(0, str(ROOT / "backend"))
 
 # Windows consoles default to cp1252 — force UTF-8 so log arrows/accents don't crash.

@@ -155,7 +155,7 @@ Climate-Cognitive-System/
 │   ├── common.py                # Shared bootstrap-label formula (label ↔ baseline)
 │   ├── extract_data.py          # Mongo → feature CSV (+ synthetic augmentation)
 │   └── train_model.py           # Train & export the model bundle
-├── ml/seed_data/
+├── ml/seed-data/
 │   ├── generate_dataset.py      # Reproducible UTEC dataset → Mongo + PostgreSQL
 │   └── DATASET_GUIDE.md         # Usage, time window and attendance model
 ├── hardware/
@@ -376,7 +376,7 @@ python ml/pipeline/train_model.py     # → backend/app/ml/model.joblib
 
 - **`extract_data.py`** pulls `sensor_readings` from MongoDB, reads the **real plan** (`expected_occupancy`) from the stored `cognitive_action`, derives `actual_occupancy` from CO₂, attaches per-room physical metadata (`floor`, `volume_m3`, `ac_btu`) and the exogenous `outdoor_temp`, writes rows **in chronological order**, and augments with synthetic rows when real data is sparse.
 - **`train_model.py`** fits a `HistGradientBoostingRegressor` with **early stopping** on a **chronological holdout**, reports **baselines** (mean + occupancy-only heuristic) so ML only ships if it beats them, prints permutation feature importances, and exports a **bundle** `{model, features, room_id_map, metadata}` to `model.joblib`. On the next backend startup it is picked up automatically (ML mode).
-- Reproducible seed: **`ml/seed_data/generate_dataset.py`** builds a realistic ~2-month UTEC dataset (occupancy trend, CO₂-coherent gap, Lima climate) and loads Mongo + PostgreSQL — see [`ml/seed_data/DATASET_GUIDE.md`](../../ml/seed_data/DATASET_GUIDE.md).
+- Reproducible seed: **`ml/seed-data/generate_dataset.py`** builds a realistic ~2-month UTEC dataset (occupancy trend, CO₂-coherent gap, Lima climate) and loads Mongo + PostgreSQL — see [`ml/seed-data/DATASET_GUIDE.md`](../../ml/seed-data/DATASET_GUIDE.md).
 
 ---
 

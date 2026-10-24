@@ -39,7 +39,7 @@ ccs/
 │   └── docker-compose.prod.yml   ajustes para el servidor de producción
 ├── ml/
 │   ├── pipeline/         entrenamiento del modelo de carga térmica
-│   └── seed_data/        datos semilla: aulas (incluida A403), sensores, horarios y lecturas
+│   └── seed-data/        datos semilla: aulas (incluida A403), sensores, horarios y lecturas
 ├── tools/
 │   ├── broker-local/     broker MQTT liviano para probar solo el nodo, sin Docker
 │   ├── openapi/          generador de la especificación para Watson Assistant
@@ -91,10 +91,10 @@ igual se guardan, pero el dashboard React no muestra el aula.
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
-python ml/seed_data/generate_dataset.py
+python ml/seed-data/generate_dataset.py
 ```
 
-Más detalles en [`ml/seed_data/DATASET_GUIDE.md`](ml/seed_data/DATASET_GUIDE.md).
+Más detalles en [`ml/seed-data/DATASET_GUIDE.md`](ml/seed-data/DATASET_GUIDE.md).
 
 ### 3. Compilar y simular el nodo
 

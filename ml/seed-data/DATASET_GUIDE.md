@@ -1,4 +1,4 @@
-# seed_data — Dataset UTEC (Climate Cognitive System)
+# seed-data — Dataset UTEC (Climate Cognitive System)
 
 Generador de historial realista del campus **UTEC Barranco, Lima** para poblar las
 bases de datos del sistema. No es telemetría de hardware real: reproduce el
@@ -41,9 +41,9 @@ motor cognitivo.
 Desde la raíz del proyecto, con los puertos de las DB expuestos en `localhost`:
 
 ```bash
-python ml/seed_data/generate_dataset.py --dry-run   # solo JSON en output/, sin tocar DB
-python ml/seed_data/generate_dataset.py             # inserta en Mongo + Postgres
-python ml/seed_data/generate_dataset.py --wipe      # limpia sensor_readings antes de insertar
+python ml/seed-data/generate_dataset.py --dry-run   # solo JSON en output/, sin tocar DB
+python ml/seed-data/generate_dataset.py             # inserta en Mongo + Postgres
+python ml/seed-data/generate_dataset.py --wipe      # limpia sensor_readings antes de insertar
 ```
 
 Overrides: `MONGO_URI`, `POSTGRES_URI`.
