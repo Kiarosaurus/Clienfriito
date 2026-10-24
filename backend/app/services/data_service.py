@@ -4,6 +4,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.timeutils import to_local
 from app.models.sensor import SensorReading
 from app.services.predictive_service import calculate_cooling_demand
+from app.services.strategy_comparison import compare_reading
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,8 @@ async def save_reading(db, reading: SensorReading, cognitive_action: dict | None
     doc["timestamp"] = reading.timestamp.replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%S.%f")
     if cognitive_action is not None:
         doc["cognitive_action"] = cognitive_action
+    # RF-30: record per reading whether the node and the AI agreed.
+    doc["comparison"] = compare_reading(doc)
     logger.info(
         "[INGEST] sensor_id=%s is_simulated=%s co_ppm=%s ts=%s",
         reading.sensor_id, reading.is_simulated, reading.co_ppm, doc["timestamp"],

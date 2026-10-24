@@ -175,6 +175,57 @@ async def latest_by_room(
     return [{"room_id": r, "reading": latest.get(r)} for r in rooms]
 
 
+@router.get("/comparison")
+async def strategy_comparison(
+    room_id: str,
+    hours: float = Query(24, gt=0, le=168),
+    format: str = Query("json", pattern="^(json|csv)$"),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    db_sql: Session = Depends(get_db_sql),
+    current_user: User = Depends(get_current_user),
+):
+    """Node heuristic vs AI over the last `hours` (RF-30, RF-31).
+
+    JSON: coincidence %, divergence breakdown and recent divergences with context,
+    and the estimated energy of each strategy over the same window.
+    CSV: every compared reading, for the report's results figure.
+    """
+    from fastapi.responses import Response
+    from app.services.strategy_comparison import summarize, compare_reading
+
+    sensors = await run_in_threadpool(
+        lambda: [d.id for d in db_sql.query(SensorDevice).filter(SensorDevice.room_id == room_id).all()]
+    )
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S.%f")
+    projection = {
+        "_id": 0, "timestamp": 1, "is_simulated": 1, "temperature": 1, "co2_ppm": 1,
+        "node_state": 1, "cognitive_action": 1, "comparison": 1,
+    }
+    try:
+        docs = await db["sensor_readings"].find(
+            {"sensor_id": {"$in": sensors}, "timestamp": {"$gte": since}, "node_state": {"$ne": None}},
+            projection,
+        ).sort("timestamp", 1).to_list(length=None)
+    except PyMongoError as exc:
+        logger.error("MongoDB unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+
+    if format == "csv":
+        lines = ["timestamp_utc,temperature,co2_ppm,node_action,node_fan_pwm,node_heater,ai_status,ai_mode,ai_target,expected_occupancy,actual_occupancy,match"]
+        for d in docs:
+            n, a = d.get("node_state") or {}, d.get("cognitive_action") or {}
+            cmp = d.get("comparison") or compare_reading(d)
+            lines.append(",".join(str(v if v is not None else "") for v in [
+                d["timestamp"], d.get("temperature"), d.get("co2_ppm"), n.get("accion"), n.get("ventilador_pwm"),
+                n.get("calefactor"), a.get("ac_status"), a.get("cooling_mode"), a.get("target"),
+                a.get("expected_occupancy"), a.get("actual_occupancy"), "" if cmp is None else cmp["match"],
+            ]))
+        return Response("\n".join(lines) + "\n", media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="comparacion_{room_id}.csv"'})
+
+    return {"room_id": room_id, "hours": hours, **summarize(docs)}
+
+
 @router.delete("/simulated", status_code=200, responses={403: {"model": ErrorDetail}})
 async def purge_simulated_readings(
     db: AsyncIOMotorDatabase = Depends(get_db),
