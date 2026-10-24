@@ -22,7 +22,7 @@ def detect_anomaly(reading: SensorReading) -> bool:
 
 
 def get_room_context(db_sql, sensor_id: str, reading_timestamp: datetime) -> dict | None:
-    from app.models.admin import SensorDevice, Schedule
+    from app.models.admin import SensorDevice, Schedule, Reservation
 
     # Look up device — skip telemetry if inactive or control disabled
     device = (
@@ -53,7 +53,19 @@ def get_room_context(db_sql, sensor_id: str, reading_timestamp: datetime) -> dic
     # so pre-cooling can begin before the class does. (A lookahead that crosses
     # midnight misses — acceptable, no classes straddle midnight.)
     lookahead = now + timedelta(minutes=PRECOOL_LOOKAHEAD_MIN)
-    schedule = (
+    # A one-off reservation takes precedence over the weekly schedule: it is the
+    # most specific plan for this room and hour (same lookahead window).
+    reservation = (
+        db_sql.query(Reservation)
+        .filter(
+            Reservation.room_id == room.id,
+            Reservation.start_time <= lookahead,
+            Reservation.end_time >= now,
+        )
+        .order_by(Reservation.start_time)
+        .first()
+    )
+    schedule = None if reservation else (
         db_sql.query(Schedule)
         .filter(
             Schedule.day_of_week == now.weekday(),
@@ -63,12 +75,19 @@ def get_room_context(db_sql, sensor_id: str, reading_timestamp: datetime) -> dic
         )
         .first()
     )
+    if reservation:
+        expected_people, expected_source = reservation.expected_occupancy, "reservation"
+    elif schedule:
+        expected_people, expected_source = schedule.expected_people, "schedule"
+    else:
+        expected_people, expected_source = None, None
     return {
         "room_id": room.id,
         "room_name": room.name,
         "max_capacity": room.max_capacity,
         "target_temp": room.target_temp,
-        "expected_people": schedule.expected_people if schedule else None,
+        "expected_people": expected_people,
+        "expected_source": expected_source,
         "control_policy": getattr(room, "control_policy", "auto") or "auto",
         "device_id": device.id,
     }

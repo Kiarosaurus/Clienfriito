@@ -1,0 +1,65 @@
+"""Expected occupancy source: a reservation takes precedence over the weekly schedule."""
+from datetime import datetime, time
+
+import pytest
+
+pytest.importorskip("sqlalchemy")
+
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+
+from app.database_sql import Base  # noqa: E402
+import app.models.admin  # noqa: E402,F401  (registers the ORM models)
+from app.models.admin import Room, Schedule, SensorDevice, Reservation, User  # noqa: E402
+from app.services.data_service import get_room_context  # noqa: E402
+
+# Readings are stamped in naive UTC; Lima is UTC-5 (LOCAL_UTC_OFFSET_HOURS default).
+# Monday 2026-10-26 10:00 local == 15:00 UTC.
+READING_UTC = datetime(2026, 10, 26, 15, 0)
+
+
+@pytest.fixture
+def db():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    session.add_all([
+        User(id=1, username="prof", hashed_password="x", role="collaborator", status="active"),
+        Room(id="A403", name="A403 Aula", max_capacity=46, target_temp=24.0),
+        SensorDevice(id="s-A403", room_id="A403", is_active=True, control_enabled=True),
+        # Monday 10:00–12:00, 30 people every week
+        Schedule(room_id="A403", day_of_week=0, start_time=time(10, 0), end_time=time(12, 0), expected_people=30),
+    ])
+    session.commit()
+    yield session
+    session.close()
+
+
+def test_schedule_is_used_when_there_is_no_reservation(db):
+    ctx = get_room_context(db, "s-A403", READING_UTC)
+    assert ctx["expected_people"] == 30
+    assert ctx["expected_source"] == "schedule"
+
+
+def test_reservation_overrides_schedule(db):
+    db.add(Reservation(room_id="A403", user_id=1, expected_occupancy=12,
+                       start_time=datetime(2026, 10, 26, 10, 0), end_time=datetime(2026, 10, 26, 11, 0)))
+    db.commit()
+    ctx = get_room_context(db, "s-A403", READING_UTC)
+    assert ctx["expected_people"] == 12
+    assert ctx["expected_source"] == "reservation"
+
+
+def test_upcoming_reservation_within_lookahead_enables_precooling(db):
+    # Starts 20 min after the reading (inside the 30 min pre-cooling window)
+    db.add(Reservation(room_id="A403", user_id=1, expected_occupancy=40,
+                       start_time=datetime(2026, 10, 26, 10, 20), end_time=datetime(2026, 10, 26, 11, 0)))
+    db.commit()
+    ctx = get_room_context(db, "s-A403", READING_UTC)
+    assert ctx["expected_people"] == 40
+
+
+def test_no_plan_means_no_expected_people(db):
+    ctx = get_room_context(db, "s-A403", datetime(2026, 10, 27, 20, 0))  # Tuesday 15:00 local
+    assert ctx["expected_people"] is None
+    assert ctx["expected_source"] is None
