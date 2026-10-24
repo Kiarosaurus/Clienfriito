@@ -1,0 +1,211 @@
+% !TeX program = pdflatex
+% =====================================================================
+%  CS5055 - Internet of Things (2026-2)
+%  Perfil de Proyecto Final - Descripcion breve
+%  Compilar: pdflatex perfil_proyecto_CS5055.tex
+% =====================================================================
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-noquoting]{babel}
+\usepackage[left=1.5cm,right=1.5cm,top=1.2cm,bottom=1.5cm]{geometry}
+\usepackage[scaled=0.92]{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue!55!black}
+
+% --- Estilo de reporte: secciones compactas ---
+\titleformat{\section}{\normalsize\bfseries}{\thesection.}{0.5em}{}
+\titlespacing*{\section}{0pt}{8pt}{3pt}
+\setlength{\parskip}{2.5pt}
+\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.12}
+
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\fancyfoot[C]{\scriptsize\color{black!55}CS5055 Internet of Things $\cdot$ Perfil de proyecto $\cdot$ \thepage}
+
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+% Rotulo de bloque, con aire propio arriba
+\newcommand{\subhead}[1]{\vspace{6pt}\textbf{#1}\par\vspace{0pt}}
+
+% Evitar lineas viudas y huerfanas
+\clubpenalty=10000
+\widowpenalty=10000
+
+\begin{document}
+
+% --- Encabezado tipo reporte ---
+\noindent\rule{\textwidth}{1.2pt}\\[3pt]
+{\large\bfseries Climate Cognitive System (CCS)}\\[2pt]
+{\normalsize Nodo IoT de control térmico de aula: modelo de IA frente a heurística}\\[5pt]
+{\footnotesize Curso: Internet of Things (CS5055) $\cdot$ UTEC $\cdot$ 2026-2}\\[1pt]
+{\footnotesize Equipo: Brayan Eduardo Gomero Castillo $\cdot$ Kiara Alexandra Balcázar
+Santa Cruz $\cdot$ Rodrigo Dion Carlos Acosta}\\[4pt]
+\noindent\rule{\textwidth}{0.5pt}
+
+% =====================================================================
+\section{Problemática}
+
+Las aulas de UTEC se climatizan con un sistema centralizado, donde la decisión de enfriar se
+toma en un equipo central del edificio y no en cada aula. Esto genera tres problemas.
+
+\begin{itemize}[leftmargin=1.2em,itemsep=1.5pt,topsep=2pt,parsep=0pt]
+  \item \textbf{La climatización no responde a la ocupación.} El calor que se acumula en un
+  aula depende de cuántas personas hay dentro, y esa cantidad cambia a lo largo del día.
+  Como el sistema central no la mide, enfría aulas vacías y se queda corto cuando el aula
+  está llena.
+  \item \textbf{No se monitorea la calidad del aire.} El CO$_2$ aumenta conforme se llena el
+  aula y afecta el confort y la concentración, pero hoy no se mide ni se corrige.
+  \item \textbf{No existe alerta de monóxido de carbono.} Ante una fuga de CO no hay ningún
+  sensor que la detecte ni ninguna respuesta automática.
+\end{itemize}
+
+El proyecto también responde una pregunta técnica: si un modelo de IA justifica su
+complejidad frente a una heurística de umbrales para decidir cuándo climatizar. En lugar de
+asumir la respuesta, la contrastamos con datos reales del aula.
+
+% =====================================================================
+\section{Sensores}
+
+\vspace{2pt}
+{\footnotesize
+\begin{tabularx}{\textwidth}{@{}C{0.7cm} l X C{1.9cm}@{}}
+\toprule
+\textbf{\#} & \textbf{Sensor} & \textbf{Qué mide y para qué} & \textbf{Carácter} \\
+\midrule
+1 & DHT11 & Temperatura y humedad del aula, que son la entrada principal de las dos
+    lógicas de decisión. & Vital \\
+2 & MQ-135 & Calidad del aire, que usamos como estimación indirecta del CO$_2$. Sirve para
+    calcular la ocupación y para activar la ventilación cuando el aire se vicia. & Vital \\
+3 & MQ-7 & Monóxido de carbono, con el $R_0$ calibrado en aire limpio. Es el canal de
+    seguridad del sistema. & Vital \\
+4 & INA219 / ACS712 & Corriente y potencia que consume el actuador. Con esta medición el
+    reporte de ahorro energético deja de ser una estimación. & Adicional \\
+5 & Cámara + MediaPipe & Conteo de personas por cruce de línea, procesado en un equipo
+    aparte del nodo. Valida la ocupación calculada a partir del CO$_2$. & Externo \\
+\bottomrule
+\end{tabularx}}
+
+\vspace{3pt}
+El mínimo de tres sensores que exige el curso lo cubren los tres primeros, que van
+embarcados en el propio nodo ESP32. El sensor de consumo se declara como adicional porque
+el sistema funciona igual sin él, y sin esa medición el ahorro energético se reporta como
+estimación en lugar de dato medido. La cámara no se cuenta dentro de ese mínimo, porque su
+procesamiento ocurre fuera del nodo, en un equipo aparte; queda como canal externo que
+valida de forma independiente la ocupación estimada a partir del CO$_2$.
+
+% =====================================================================
+\section{Actuadores}
+
+\vspace{2pt}
+{\footnotesize
+\begin{tabularx}{\textwidth}{@{}C{0.7cm} L{3.6cm} X C{1.9cm}@{}}
+\toprule
+\textbf{\#} & \textbf{Actuador} & \textbf{Función y disparo} & \textbf{Carácter} \\
+\midrule
+1 & Ventilador DC 12\,V con relé o MOSFET
+  & Enfría y renueva el aire. Recibe la decisión por MQTT y la aplica encendiéndose y
+    apagándose, o regulando el caudal con PWM. & Vital \\
+2 & Buzzer + LED RGB
+  & Alarma de CO. Se activa en el propio nodo al superar los 50\,ppm, sin depender de la
+    red, y lleva el ventilador a caudal máximo. & Vital \\
+3 & Calefactor PTC cerámico 12\,V
+  & Calienta el aula. Añade la opción de calentar, de modo que la decisión puede ser
+    calentar, enfriar o mantener. & Adicional \\
+\bottomrule
+\end{tabularx}}
+
+\vspace{3pt}
+Los dos primeros cumplen el requisito del curso y son independientes entre sí, ya que uno
+responde a la temperatura y el otro a la seguridad. El calefactor es adicional. Todo el
+prototipo funciona en baja tensión DC de hasta 12\,V y en ningún caso maneja
+\mbox{220\,V AC}.
+
+% =====================================================================
+\section{Núcleo del proyecto: dos lógicas de decisión en paralelo}
+
+Las dos lógicas trabajan sobre los mismos datos, y cada una decide por separado qué hacer
+con el actuador.
+
+\begin{itemize}[leftmargin=1.2em,itemsep=1.5pt,topsep=2pt,parsep=0pt]
+  \item \textbf{Heurística.} Reglas de umbral sobre temperatura, CO$_2$ y ocupación. Incluye
+  un margen de $\pm 0{,}5\,^\circ$C y un encendido mínimo de 60\,s para que el ventilador no
+  se encienda y se apague de forma continua. Se puede revisar regla por regla y sirve como
+  referencia de comparación.
+  \item \textbf{Modelo de IA.} Una regresión con \emph{gradient boosting} que predice el
+  calor que va a acumular el aula a partir de la temperatura, la hora, la ocupación esperada
+  según la reserva, la ocupación real, la temperatura exterior y los datos del aula. Se
+  valida con datos posteriores a los del entrenamiento y no se despliega si no supera a la
+  heurística.
+\end{itemize}
+
+Las dos funcionan de forma permanente: una controla el ventilador y la otra decide en
+paralelo sin actuar. El dashboard muestra ambas decisiones lado a lado con el motivo de cada
+una, y el sistema registra cuánto coinciden, en qué casos difieren y cuánta energía consume
+cada estrategia. Así el entregable no es solo un sistema que funciona, sino la evidencia de
+cuál de las dos decide mejor. Si el modelo no supera a la heurística, ese resultado también
+es válido y se reporta.
+
+% =====================================================================
+\section{Alcance}
+
+\subhead{Qué se entrega.}
+\begin{enumerate}[leftmargin=1.4em,itemsep=1.5pt,topsep=2pt,parsep=0pt]
+  \item \textbf{Nodo IoT autónomo.} Un ESP32 con los sensores listados, PCB propia diseñada
+  en KiCad y carcasa impresa en 3D en PLA, con la zona de sensado separada del flujo del
+  ventilador para no alterar las lecturas.
+  \item \textbf{Comunicación inalámbrica.} MQTT sobre WiFi en ambas direcciones con QoS 1,
+  aviso automático cuando el nodo se desconecta, y el último comando queda guardado en el
+  servidor para que el nodo recupere su estado tras un reinicio.
+  \item \textbf{Lazo de control cerrado.} El recorrido completo, del sensado a la ocupación
+  estimada, de ahí a la decisión de las dos lógicas, luego el comando por MQTT y finalmente
+  la actuación física, con una latencia objetivo máxima de 3\,s.
+  \item \textbf{Backend y dashboard web.} Incluyen procesamiento previo de los datos, con la
+  predicción del calor que se va a acumular, la ocupación estimada, la comparación de las
+  dos lógicas,
+  las alertas de CO y el reporte de ahorro en kWh y USD sobre una ventana de 7 días.
+  \item \textbf{Seguridad en el propio nodo.} La alarma de CO no depende del servidor, y si
+  se pierde la comunicación el actuador pasa a un estado seguro.
+  \item \textbf{Validación experimental.} El contraste entre la IA y la heurística con datos
+  reales del aula, con al menos una figura de resultados propia.
+\end{enumerate}
+
+\subhead{Despliegue.}
+Un nodo físico en un aula piloto, la A403 de UTEC Barranco. Añadir más aulas no requiere
+cambios en el código, porque cada una envía y recibe sus mensajes por canales MQTT propios
+identificados con su nombre, como \texttt{ccs/A403/telemetry}. Aun así, solo se demuestra un
+nodo real y las aulas restantes se simulan.
+
+\subhead{Fuera de alcance.}
+\begin{itemize}[leftmargin=1.2em,itemsep=1.5pt,topsep=2pt,parsep=0pt]
+  \item \textbf{El aire acondicionado central del campus.} No lo controlamos porque no ofrece
+  ninguna forma de manejarlo desde el aula, ni por control remoto infrarrojo ni con un ajuste
+  de temperatura local. Su operación está a cargo del personal del edificio y no es de acceso
+  público, así que intervenirlo excede lo que corresponde a un proyecto de curso. Por eso el
+  actuador del proyecto es local, y la integración con el sistema del campus queda como
+  trabajo futuro.
+  \item \textbf{Aplicativo móvil nativo.} No se implementa, y además es opcional según el
+  enunciado. El dashboard web se adapta a pantallas de celular y se usa desde el navegador.
+  \item \textbf{Tensión de red.} No se maneja 220\,V AC, ya que todo el prototipo trabaja en
+  baja tensión DC.
+  \item \textbf{Control de acceso.} El conteo de personas solo alimenta el modelo térmico, y
+  ningún elemento del sistema abre, cierra ni bloquea un paso físico.
+  \item \textbf{Precisión del MQ-135.} Lo usamos como una estimación relativa de CO$_2$ y no
+  como una medición exacta en ppm. Se calibra en dos puntos, con el aula vacía y con el aula
+  llena, y se contrasta con el conteo de la cámara.
+\end{itemize}
+
+\end{document}
