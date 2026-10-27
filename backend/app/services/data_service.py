@@ -17,7 +17,8 @@ def detect_anomaly(reading: SensorReading) -> bool:
     return (
         reading.temperature > 40
         or reading.humidity > 95
-        or reading.co_ppm > 50  # EPA alert threshold for CO
+        # EPA alert threshold for CO — sin lectura MQ-7 no hay anomalía de CO.
+        or (reading.co_ppm is not None and reading.co_ppm > 50)
     )
 
 
@@ -74,8 +75,13 @@ def get_room_context(db_sql, sensor_id: str, reading_timestamp: datetime) -> dic
     }
 
 
-async def save_reading(db, reading: SensorReading, cognitive_action: dict | None = None) -> str:
+async def save_reading(db, reading: SensorReading, cognitive_action: dict | None = None,
+                       anomaly: bool | None = None) -> str:
     doc = reading.model_dump()
+    # CS5055 (aditivo): se persiste el resultado de detect_anomaly para que
+    # GET /sensors/ lo devuelva (antes siempre null).
+    if anomaly is not None:
+        doc["anomaly_detected"] = bool(anomaly)
     # Always store naive UTC ISO string so MongoDB string comparison in $gte/$lte queries
     # works consistently regardless of whether the client sent a 'Z' or '+00:00' timestamp.
     doc["timestamp"] = reading.timestamp.replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%S.%f")
@@ -116,7 +122,7 @@ async def process_reading(db, reading: SensorReading, db_sql=None) -> dict:
             reading.temperature, room_context, reading.timestamp, co2_ppm=reading.co2_ppm
         )
 
-    inserted_id = await save_reading(db, reading, cognitive_action=cognitive_action)
+    inserted_id = await save_reading(db, reading, cognitive_action=cognitive_action, anomaly=anomaly)
     logger.info(
         "Saved sensor_id=%s inserted_id=%s anomaly=%s room=%s ac=%s",
         reading.sensor_id, inserted_id, anomaly,
@@ -133,4 +139,7 @@ async def process_reading(db, reading: SensorReading, db_sql=None) -> dict:
     }
     if room_context:
         result["room_context"] = room_context
+    # CS5055 (aditivo): desglose de potencia con la regla única del backend.
+    from app.services.node_metrics import reading_power
+    result["power"] = reading_power({**reading.model_dump(), "cognitive_action": cognitive_action})
     return result

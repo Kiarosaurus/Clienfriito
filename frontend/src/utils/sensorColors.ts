@@ -1,3 +1,5 @@
+import type { MetricStatus } from '../components/MetricCard'
+
 // Semantic threshold levels + colors for sensor readings.
 // Single source of truth shared by GlobalDashboard (metric cards + table) and
 // RoomDetail (table). Dentro de rango → gris neutro (#7a96b5, texto secundario);
@@ -68,3 +70,19 @@ export function getColorCO2(value: number): string {
 export function getColorCO(value: number): string {
   return LEVELS[levelCO(value)].text
 }
+
+// ── MetricCard bridge (shared by GlobalDashboard and RoomDetail) ──────────────
+// Same thresholds in every view: a reading never changes color between screens.
+
+export const LEVEL_TO_STATUS: Record<SensorLevel, MetricStatus> = {
+  normal: 'normal', atencion: 'warning', elevado: 'elevated', alerta: 'alert',
+}
+// Non-normal levels → exact threshold palette; normal → undefined so the card
+// falls back to STATUS_TOKENS.normal.
+export function levelTone(level: SensorLevel) {
+  if (level === 'normal') return undefined
+  const tk = sensorTokens(level)
+  return { bar: tk.bar, ring: tk.ring, icon: tk.text }
+}
+// Absent value → neutral color (never paint a missing reading as "normal").
+export const NEUTRAL_TEXT = 'text-slate-500'

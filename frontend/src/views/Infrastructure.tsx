@@ -277,12 +277,12 @@ export default function Infrastructure() {
         id: regSensorForm.id.trim(),
         room_id: regSensorForm.room_id,
       })
-      showToast('success', `Sensor '${regSensorForm.id}' aprovisionado. Estado inicial: inactivo.`)
+      showToast('success', `Nodo '${regSensorForm.id}' aprovisionado. Estado inicial: inactivo.`)
       setRegSensorForm(f => ({ ...f, id: '' }))
       await refreshDevices()
     } catch (err: unknown) {
       const detail = getApiErrorDetail(err)
-      showToast('error', detail ?? 'No se pudo registrar el sensor.')
+      showToast('error', detail ?? 'No se pudo registrar el nodo.')
     } finally { setSensorSubmitting(false) }
   }
 
@@ -312,7 +312,7 @@ export default function Infrastructure() {
         ...(idChanged ? { new_id: pendingSensor.newSensorId } : {}),
       })
       const label = idChanged ? pendingSensor.newSensorId : pendingSensor.original.sensor_id
-      showToast('success', `Sensor '${label}' actualizado correctamente.`)
+      showToast('success', `Nodo '${label}' actualizado correctamente.`)
       setPendingSensor(null)
       setEditSensorId('')
       setEditSensorNewId('')
@@ -320,7 +320,7 @@ export default function Infrastructure() {
       await refreshDevices()
     } catch (err: unknown) {
       const detail = getApiErrorDetail(err)
-      showToast('error', detail ?? 'No se pudo actualizar el sensor.')
+      showToast('error', detail ?? 'No se pudo actualizar el nodo.')
     } finally { setSensorSubmitting(false) }
   }
 
@@ -368,14 +368,14 @@ export default function Infrastructure() {
     setDeleteSensorModalOpen(false)
     try {
       await api.delete(`/admin/sensors/${editSensorId}`)
-      showToast('success', `Sensor '${editSensorId}' eliminado definitivamente.`)
+      showToast('success', `Nodo '${editSensorId}' eliminado definitivamente.`)
       setEditSensorId('')
       setEditSensorRoomId('')
       setDeleteSensorConfirm('')
       await refreshDevices()
     } catch (err: unknown) {
       const detail = getApiErrorDetail(err)
-      showToast('error', detail ?? 'No se pudo eliminar el sensor.')
+      showToast('error', detail ?? 'No se pudo eliminar el nodo.')
     } finally { setSensorSubmitting(false) }
   }
 
@@ -407,7 +407,7 @@ export default function Infrastructure() {
         <Building2 size={22} className="text-blue-400" />
         <div>
           <h1 className="text-xl font-bold text-white">Gestión de Infraestructura</h1>
-          <p className="text-sm text-slate-400">Aprovisionamiento y configuración de aulas y sensores IoT</p>
+          <p className="text-sm text-slate-400">Aprovisionamiento de aulas y nodos ESP32 (un nodo por aula)</p>
         </div>
       </div>
 
@@ -605,8 +605,8 @@ export default function Infrastructure() {
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
               <h2 className="flex items-center gap-2 text-slate-100 text-sm font-semibold">
                 <Cpu size={15} className="text-blue-400 shrink-0" />
-                Sensores
-                <span className="text-slate-500 font-normal text-xs">(Hardware IoT)</span>
+                Nodos ESP32
+                <span className="text-slate-500 font-normal text-xs">(sensores + actuadores)</span>
               </h2>
               <TabBar
                 active={sensorTab}
@@ -625,7 +625,7 @@ export default function Infrastructure() {
                 <form onSubmit={handleRegisterSensor} className="flex flex-col flex-1 justify-between overflow-hidden">
                   <div className="flex-1 min-h-0 overflow-y-auto pr-2 space-y-4">
                     <div>
-                      <label className={labelCls}>ID del Sensor</label>
+                      <label className={labelCls}>ID del nodo ESP32</label>
                       <input type="text" required placeholder="ej. sensor-lab-101-a"
                         value={regSensorForm.id}
                         onChange={e => setRegSensorForm(f => ({ ...f, id: e.target.value }))}
@@ -636,7 +636,7 @@ export default function Infrastructure() {
                       {rooms.length === 0 ? (
                         <div className="flex items-center gap-2 text-amber-400 text-sm bg-amber-900/20 border border-amber-500/30 rounded-lg px-3 py-2.5">
                           <AlertCircle size={14} className="shrink-0" />
-                          No hay aulas registradas. Registra una antes de añadir sensores.
+                          No hay aulas registradas. Registra una antes de añadir nodos.
                         </div>
                       ) : (
                         <SearchableSelect
@@ -652,9 +652,20 @@ export default function Infrastructure() {
                     <div className="flex items-start gap-2 bg-slate-900/50 border border-slate-700/60 rounded-lg px-3 py-2.5">
                       <Info size={13} className="text-slate-500 shrink-0 mt-0.5" />
                       <p className="text-xs text-slate-400">
-                        Sensores nuevos se inicializan{' '}
-                        <strong className="text-slate-300">apagados y sin control AC</strong>.
+                        Los nodos ESP32 nuevos se inicializan{' '}
+                        <strong className="text-slate-300">sin recepción y sin control de actuadores</strong>.
                         Actívalos desde el Dashboard del aula tras la instalación física.
+                      </p>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-700/60 rounded-lg px-3 py-2.5 text-xs text-slate-400 space-y-1.5">
+                      <p className="text-slate-300 font-medium">Nodo ESP32 DevKit · WiFi · diseño de enlace: MQTT (QoS 1, LWT)</p>
+                      <p>Sensores: DHT11 (T/HR) · MQ-135 (CO₂ relativo, ADC1) · MQ-7 (CO, ADC1) · INA219 (potencia de la rama del actuador, I2C)</p>
+                      <p>Actuadores: ventilador DC 12 V PWM · buzzer + LED RGB (alarma CO local) · PTC 12 V (por confirmar)</p>
+                      <p className="font-mono text-[11px] text-slate-500 break-all">
+                        ccs/{regSensorForm.room_id || '<aula>'}/telemetry · /cmd · /status
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Topics previstos (por confirmar con el firmware). Mientras el puente MQTT del backend esté desactivado, el nodo envía por HTTP POST /api/v1/sensors/.
                       </p>
                     </div>
                   </div>
@@ -665,7 +676,7 @@ export default function Infrastructure() {
                     >
                       {sensorSubmitting
                         ? <><RefreshCw size={13} className="animate-spin" /> Guardando…</>
-                        : <><PlusCircle size={13} /> Registrar Sensor</>}
+                        : <><PlusCircle size={13} /> Registrar nodo</>}
                     </button>
                   </div>
                 </form>
@@ -679,19 +690,19 @@ export default function Infrastructure() {
                       options={sensorOptions}
                       value={editSensorId}
                       onChange={selectEditSensor}
-                      placeholder="Busca el sensor a reasignar…"
-                      label="Seleccionar Sensor"
+                      placeholder="Busca el nodo a reasignar…"
+                      label="Seleccionar nodo ESP32"
                       icon={<Radio size={16} />}
                     />
                     {!editSensorId && (
                       <p className="text-xs text-slate-500">
-                        Selecciona un sensor para ver su aula actual y reasignarlo.
+                        Selecciona un nodo para ver su aula actual y reasignarlo.
                       </p>
                     )}
                     {editSensorId && (
                       <>
                         <p className="text-xs text-emerald-400 flex items-center gap-1">
-                          <CheckCircle2 size={11} /> Sensor {editSensorId} seleccionado.
+                          <CheckCircle2 size={11} /> Nodo {editSensorId} seleccionado.
                         </p>
 
                         {/* Current assignment */}
@@ -706,13 +717,13 @@ export default function Infrastructure() {
                           <p className={`text-xs mt-1 ${currentDevice?.is_active ? 'text-emerald-400' : 'text-slate-500'}`}>
                             {currentDevice?.is_active ? 'Activo' : 'Inactivo'}
                             {' · '}
-                            {currentDevice?.control_enabled ? 'Control AC habilitado' : 'Control AC deshabilitado'}
+                            {currentDevice?.control_enabled ? 'Control de actuadores habilitado' : 'Control de actuadores deshabilitado'}
                           </p>
                         </div>
 
                         {/* New sensor ID */}
                         <div>
-                          <label className={labelCls}>ID del Sensor</label>
+                          <label className={labelCls}>ID del nodo ESP32</label>
                           <input type="text" required
                             value={editSensorNewId}
                             onChange={e => setEditSensorNewId(e.target.value)}
@@ -739,7 +750,7 @@ export default function Infrastructure() {
                         onClick={() => { setDeleteSensorConfirm(''); setDeleteSensorModalOpen(true) }}
                         className="flex items-center gap-1.5 text-sm text-red-500 hover:bg-red-500/10 px-3 py-2 rounded-lg transition-colors"
                       >
-                        <Trash2 size={13} /> Eliminar sensor
+                        <Trash2 size={13} /> Eliminar nodo
                       </button>
                     ) : <span />}
                     <button type="submit"
@@ -835,7 +846,7 @@ export default function Infrastructure() {
                     className="w-3.5 h-3.5 rounded border-amber-600 bg-amber-900/30 accent-amber-500 shrink-0 cursor-pointer"
                   />
                   <span className="text-xs text-amber-200 select-none">
-                    Modificar la asociación de ID en todos los sensores instalados.
+                    Modificar la asociación de ID en todos los nodos instalados.
                   </span>
                 </label>
                 {(!cascadeReservations || !cascadeSensors) && (
@@ -905,12 +916,12 @@ export default function Infrastructure() {
                     )}
                     {(roomImpact?.sensors_count ?? 0) > 0 && (
                       <p className="text-amber-300">
-                        <span className="font-bold">{roomImpact!.sensors_count} sensor{roomImpact!.sensors_count !== 1 ? 'es' : ''}</span>{' '}
+                        <span className="font-bold">{roomImpact!.sensors_count} nodo{roomImpact!.sensors_count !== 1 ? 's' : ''}</span>{' '}
                         quedarán sin asignación de aula (hardware IoT preservado).
                       </p>
                     )}
                     {(roomImpact?.reservations_count ?? 0) === 0 && (roomImpact?.sensors_count ?? 0) === 0 && (
-                      <p className="text-slate-400">Esta aula no tiene reservas ni sensores asociados.</p>
+                      <p className="text-slate-400">Esta aula no tiene reservas ni nodos asociados.</p>
                     )}
                   </div>
                 )}
@@ -959,7 +970,7 @@ export default function Infrastructure() {
 
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
               <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                <Radio size={16} className="text-blue-400" /> Confirmar Reasignación de Sensor
+                <Radio size={16} className="text-blue-400" /> Confirmar reasignación del nodo
               </h3>
               <button onClick={() => setEditSensorModalOpen(false)}
                 className="text-slate-400 hover:text-slate-100 transition-colors"
@@ -973,7 +984,7 @@ export default function Infrastructure() {
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-slate-500 inline-block" /> Asignación Actual
                 </p>
-                <DataRow label="Sensor ID"    value={pendingSensor.original.sensor_id} />
+                <DataRow label="ID del nodo"  value={pendingSensor.original.sensor_id} />
                 <DataRow label="Aula Asignada" value={pendingSensor.original.room_name ?? pendingSensor.original.room_id ?? '(Sin asignar)'} />
                 <DataRow label="Estado"        value={pendingSensor.original.is_active ? 'Activo' : 'Inactivo'} />
               </div>
@@ -982,7 +993,7 @@ export default function Infrastructure() {
                   <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> Nueva Asignación
                 </p>
                 <DataRow
-                  label="Sensor ID"
+                  label="ID del nodo"
                   value={pendingSensor.newSensorId}
                   changed={pendingSensor.newSensorId !== pendingSensor.original.sensor_id}
                 />
@@ -1020,7 +1031,7 @@ export default function Infrastructure() {
 
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
               <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                <Trash2 size={16} className="text-red-500" /> Eliminar Sensor Permanentemente
+                <Trash2 size={16} className="text-red-500" /> Eliminar nodo permanentemente
               </h3>
               <button onClick={() => setDeleteSensorModalOpen(false)}
                 className="text-slate-500 hover:text-slate-200 transition-colors"
@@ -1033,7 +1044,7 @@ export default function Infrastructure() {
               <div className="flex items-start gap-3 bg-red-950/50 border border-red-800/50 rounded-xl px-4 py-3">
                 <TriangleAlert size={16} className="text-red-400 shrink-0 mt-0.5" />
                 <p className="text-sm text-red-300 leading-relaxed">
-                  <strong>Advertencia:</strong> El sensor{' '}
+                  <strong>Advertencia:</strong> El nodo{' '}
                   <span className="font-mono text-red-200">{editSensorId}</span>{' '}
                   será eliminado de la base de datos. Las lecturas históricas en MongoDB se
                   conservan como auditoría física.
@@ -1042,7 +1053,7 @@ export default function Infrastructure() {
 
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
-                  Escribe el ID del sensor físico para confirmar
+                  Escribe el ID del nodo para confirmar
                 </label>
                 <input
                   type="text"
@@ -1108,7 +1119,7 @@ export default function Infrastructure() {
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <span className="font-bold text-amber-300">{orphanData.sensors_count}</span>
-                    <span className="text-amber-200/70">sensor{orphanData.sensors_count !== 1 ? 'es' : ''} huérfano{orphanData.sensors_count !== 1 ? 's' : ''}</span>
+                    <span className="text-amber-200/70">nodo{orphanData.sensors_count !== 1 ? 's' : ''} huérfano{orphanData.sensors_count !== 1 ? 's' : ''}</span>
                   </div>
                 </div>
                 <p className="text-xs text-amber-300/70 leading-relaxed pt-1">

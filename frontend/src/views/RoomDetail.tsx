@@ -1,26 +1,46 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ComposedChart, Area, Line, Scatter, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine, ReferenceArea,
+  ComposedChart, Area, Line, LineChart, Scatter, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer, ReferenceLine, ReferenceArea,
 } from 'recharts'
 import { CalendarClock } from 'lucide-react'
 import {
-  ArrowLeft, Building2, RefreshCw, AlertCircle,
-  Zap, ZapOff, Cpu, Radio, SlidersHorizontal, WifiOff, CloudFog,
-  Thermometer, BrainCircuit, Brain, Snowflake, Bot, Sigma,
-  Inbox, LineChart as LineChartIcon, type LucideIcon,
+  ArrowLeft, Building2, RefreshCw, AlertCircle, Cpu, Radio, SlidersHorizontal,
+  WifiOff, CloudFog, Thermometer, Droplets, Wind, Users, BrainCircuit, Bot, Sigma,
+  Inbox, LineChart as LineChartIcon, Fan, Activity, GitCompare, FlaskConical, Siren,
+  Network, type LucideIcon,
 } from 'lucide-react'
 import api, { getApiErrorDetail } from '../api/client'
 import { useAuth } from '../context/AuthContext'
-import {
-  MetricCard, STATUS_TOKENS, tempStatus, coStatus,
-} from '../components/MetricCard'
+import { MetricCard } from '../components/MetricCard'
 import { EmptyState } from '../components/EmptyState'
-import { getColorTemp, getColorHumedad, getColorCO2, getColorCO } from '../utils/sensorColors'
+import {
+  getColorTemp, getColorHumedad, getColorCO2, getColorCO,
+  levelTemp, levelHumedad, levelCO2, levelCO, getStatusLabel,
+  LEVEL_TO_STATUS, levelTone, NEUTRAL_TEXT,
+} from '../utils/sensorColors'
+import type { NodeMetrics, OriginFilter, StoredReading } from '../types'
+import {
+  decisionOf, fanPwmOf, fmtNum, isSimulatedReading, readingOrigin, parseUtcMs, CO_ALARM_PPM,
+  DEFAULT_COMFORT_BAND_C, originAutoSwitch,
+} from '../utils/node'
+import {
+  DecisionBadge, NodeLinkBadge, SimulatedBadge, OriginBadge, OriginToggle, originSummary,
+  ActuatorPanel, NodeLinkPanel, NodeKpiGrid, HeuristicVsMl, AlarmOverrideBadge, overrideNote,
+  OriginFallbackNotice, intervalOf,
+} from '../components/NodeWidgets'
+import { useHealth, useNow, updatedAgo } from '../utils/live'
+
+const PILOT_ROOM = 'A403'   // único nodo físico (docs/hardware-spec.md)
+// Refresco en vivo (FE-2-03): lecturas 10 s, indicadores 30 s, línea de tiempo 60 s.
+const READINGS_POLL_MS = 10_000
+const METRICS_POLL_MS = 30_000
+const TIMELINE_POLL_MS = 60_000
 
 interface RoomInfo {
-  id: number
+  // Room PKs are strings in PostgreSQL (e.g. "A403").
+  id: string
   name: string
   max_capacity: number
   target_temp: number
@@ -28,30 +48,29 @@ interface RoomInfo {
 }
 
 // ── Cognitive-policy modes ────────────────────────────────────────────────────
-// Backend enum: control_policy = auto | heuristic | manual. Rendered as selectable
-// radio cards (icon + name + description) using the section's violet accent.
+// Backend enum: control_policy = auto | heuristic | manual (sin cambios en la API).
+// Spec CS5055: la heurística controla el ventilador; el ML corre en modo sombra.
 const POLICY_CARDS: { value: string; label: string; desc: string; Icon: LucideIcon }[] = [
   {
     value: 'auto',
     label: 'Automática',
     Icon: Bot,
-    desc: 'Usa el modelo ML si está disponible y entrenado. Si no hay modelo cargado, cae automáticamente a la fórmula heurística. Recomendado para operación normal.',
+    desc: 'La heurística decide el ventilador. El modelo ML corre en paralelo en modo sombra: su decisión se registra para comparar, pero no actúa. Recomendado para operación normal.',
   },
   {
     value: 'heuristic',
     label: 'Solo heurística',
     Icon: Sigma,
-    desc: 'Aplica siempre la fórmula estática de temperatura objetivo basada en ocupación esperada y CO₂ medido. Más predecible y sin dependencia del modelo ML.',
+    desc: 'Fija la heurística como controlador aunque el servidor desactive el modo sombra. Objetivo ajustado por ocupación esperada y CO₂ medido; predecible y sin dependencia del modelo.',
   },
   {
     value: 'manual',
     label: 'Manual',
     Icon: SlidersHorizontal,
-    desc: 'El administrador define el setpoint directamente, emitiendo acciones sin adaptación cognitiva, solo para mantenimiento o revisión.',
+    desc: 'El ventilador sigue la temperatura objetivo fijada por el administrador, sin ajuste por ocupación. Solo para mantenimiento o pruebas.',
   },
 ]
 
-// Selectable mode card — same action as the previous dropdown's onChange.
 function PolicyCard({
   card, selected, disabled, onSelect,
 }: {
@@ -94,26 +113,6 @@ interface SensorDevice {
   _updating?: boolean
 }
 
-interface SensorReading {
-  sensor_id: string
-  temperature: number
-  humidity: number
-  co2_ppm: number | null
-  co_ppm: number | null
-  timestamp: string
-  cognitive_action?: {
-    ac_status: string
-    cooling_mode: string | null
-    target: number | null
-    thermal_load_offset: number
-    model: string
-  }
-}
-
-function fmt(n: number | null | undefined, unit = '', dec = 1) {
-  return n == null ? '—' : `${n.toFixed(dec)}${unit}`
-}
-
 function Toggle({
   checked, onChange, disabled, label, sublabel,
 }: {
@@ -149,6 +148,22 @@ function Toggle({
   )
 }
 
+function Section({ icon, title, right, children }: {
+  icon: React.ReactNode; title: string; right?: React.ReactNode; children: React.ReactNode
+}) {
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <h2 className="flex items-center gap-2 text-slate-300 text-sm font-semibold uppercase tracking-wide">
+          {icon} {title}
+        </h2>
+        {right}
+      </div>
+      {children}
+    </div>
+  )
+}
+
 // ── 24h Timeline types ────────────────────────────────────────────────────────
 
 interface TimelineReservation {
@@ -166,6 +181,7 @@ interface TimelineAc {
   configured_setpoint: number
   cooling_mode?: string | null
   model?: string | null
+  action?: string | null
 }
 
 interface TimelinePoint {
@@ -176,8 +192,14 @@ interface TimelinePoint {
   actual_humidity?: number | null
   actual_co_ppm?: number | null
   readings_count?: number
+  // Procedencia del bucket (aditivo): lecturas simuladas / marcadas como nodo físico.
+  simulated_count?: number
+  node_count?: number
   predicted_temperature?: number | null
+  // Legacy field — not plotted anymore (a 12 V fan cannot hold the setpoint).
   projected_temperature?: number | null
+  fan_pwm?: number | null
+  planned_fan_pwm?: number | null
   expected_people?: number
   ac: TimelineAc
 }
@@ -190,6 +212,7 @@ interface TimelineResponse {
   window: { start: string; end: string }
   baseline_temp: number
   baseline_source?: string
+  comfort_band_c?: number
   timeline: TimelinePoint[]
 }
 
@@ -198,18 +221,17 @@ interface TimelineRow {
   hour_iso: string
   phase: 'past' | 'current' | 'future'
   temperatura_real: number | null
-  temperatura_sin_ac: number | null
-  temperatura_con_ac: number | null
-  ac_setpoint: number | null
+  temperatura_proyectada: number | null
+  fan_pwm_real: number | null
+  fan_pwm_plan: number | null
   reserva_icon: number | null
   reservation: TimelineReservation | null
   expected_people: number
   readings_count: number
-  ac_status: string | null
-  cooling_mode: string | null
+  simulated_count: number
+  decision: string | null
 }
 
-// One contiguous reservation interval, mapped to categorical X labels for ReferenceArea.
 interface ReservationSpan {
   reservation: TimelineReservation
   x1: string
@@ -225,20 +247,10 @@ const formatClock = (iso: string) =>
     hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit',
   })
 
-// Sensor reading timestamps are stored as naive UTC ("YYYY-MM-DDTHH:MM:SS.ffffff").
-// Force UTC parse so the browser renders them in local (Lima) time — same rule as
-// GlobalDashboard's parseTs.
-const parseUtcTs = (ts: string) =>
-  new Date(/(Z|[+-]\d\d:?\d\d)$/.test(ts) ? ts : `${ts}Z`)
-
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: TimelineRow }> }) {
   if (!active || !payload?.length) return null
   const row = payload[0].payload
   const phaseLabel = row.phase === 'past' ? 'Pasado' : row.phase === 'current' ? 'Ahora' : 'Futuro'
-  const mitigation =
-    row.temperatura_sin_ac != null && row.temperatura_con_ac != null
-      ? row.temperatura_sin_ac - row.temperatura_con_ac
-      : null
   return (
     <div className="bg-slate-900/95 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 shadow-xl min-w-[210px]">
       <div className="flex items-center justify-between mb-1.5 pb-1.5 border-b border-slate-700/70">
@@ -246,27 +258,23 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<
         <span className="text-[10px] uppercase tracking-wider text-slate-400">{phaseLabel}</span>
       </div>
       {row.temperatura_real != null && (
-        <p>Real: <span className="text-blue-300 font-semibold">{row.temperatura_real.toFixed(2)}°C</span></p>
+        <p>Registrada: <span className="text-blue-300 font-semibold">{row.temperatura_real.toFixed(2)}°C</span>
+          <span className="text-slate-500"> · {row.readings_count} lect.</span>
+          {row.readings_count > 0 && row.simulated_count > 0 && (
+            <span className="text-amber-400"> · {Math.round(100 * row.simulated_count / row.readings_count)} % simulada</span>
+          )}</p>
       )}
-      {row.ac_setpoint != null && (
-        <p>Setpoint AC: <span className="text-red-300 font-semibold">{row.ac_setpoint.toFixed(2)}°C</span></p>
+      {row.fan_pwm_real != null && (
+        <p>Ventilador (promedio): <span className="text-sky-300 font-semibold">{row.fan_pwm_real.toFixed(0)} %</span></p>
       )}
-      {row.temperatura_sin_ac != null && (
-        <p>Sin AC: <span className="text-amber-300 font-semibold">{row.temperatura_sin_ac.toFixed(2)}°C</span></p>
+      {row.temperatura_proyectada != null && (
+        <p>Proyectada (simulada): <span className="text-amber-300 font-semibold">{row.temperatura_proyectada.toFixed(2)}°C</span></p>
       )}
-      {row.temperatura_con_ac != null && (
-        <p>Con AC: <span className="text-sky-300 font-semibold">{row.temperatura_con_ac.toFixed(2)}°C</span></p>
-      )}
-      {row.phase === 'future' && row.ac_status === 'ON' && (
-        <p className="text-red-300">
-          Acción AC: <span className="font-semibold">{row.cooling_mode ?? 'ON'}</span>
-          {mitigation != null && mitigation > 0.05 && (
-            <span className="text-emerald-300"> · mitiga {mitigation.toFixed(2)}°C</span>
-          )}
+      {row.phase === 'future' && (
+        <p className="text-slate-300">
+          Decisión prevista: <span className="font-semibold">{row.decision ?? '—'}</span>
+          {row.fan_pwm_plan != null && <span className="text-sky-300"> · PWM {row.fan_pwm_plan.toFixed(0)} %</span>}
         </p>
-      )}
-      {row.phase === 'future' && row.ac_status === 'STANDBY' && (
-        <p className="text-slate-400">Acción AC: <span className="font-semibold">STANDBY</span></p>
       )}
       {row.reservation && (
         <div className="mt-2 pt-2 border-t border-slate-700 text-emerald-300 leading-snug space-y-0.5">
@@ -287,6 +295,8 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<
   )
 }
 
+const CHART_TOOLTIP = { backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#e2e8f0', fontSize: 12 }
+
 export default function RoomDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -294,37 +304,93 @@ export default function RoomDetail() {
   const isGuest = user?.role === 'guest'
 
   const [room, setRoom] = useState<RoomInfo | null>(null)
-  const [readings, setReadings] = useState<SensorReading[]>([])
+  const [readings, setReadings] = useState<StoredReading[]>([])
   const [devices, setDevices] = useState<SensorDevice[]>([])
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null)
+  const [metrics, setMetrics] = useState<NodeMetrics | null>(null)
+  const { data: health } = useHealth()
+  const now = useNow(5_000)
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null)
+  const [originFilter, setOriginFilter] = useState<OriginFilter>(id === PILOT_ROOM ? 'node' : 'all')
+  const [originTouched, setOriginTouched] = useState(false)
+  const [originFallback, setOriginFallback] = useState(false)
+  const changeOrigin = useCallback((v: OriginFilter) => {
+    setOriginTouched(true); setOriginFallback(false); setOriginFilter(v)
+  }, [])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [controlError, setControlError] = useState<string | null>(null)
   const [policySaving, setPolicySaving] = useState(false)
 
+  // Carga inicial: aula + nodos registrados.
   useEffect(() => {
     if (!id) return
     setLoading(true)
     setError(null)
-
-    const fallbackReadings = { data: [] as SensorReading[] }
-    const fallbackDevices  = { data: [] as SensorDevice[] }
-    const fallbackTimeline = { data: null as TimelineResponse | null }
-
+    setOriginFilter(id === PILOT_ROOM ? 'node' : 'all')
+    setOriginTouched(false); setOriginFallback(false)
+    const fallbackDevices = { data: [] as SensorDevice[] }
     Promise.all([
       api.get<RoomInfo>(`/admin/rooms/${id}`),
-      api.get<SensorReading[]>(`/sensors/?room_id=${id}&limit=40`).catch(() => fallbackReadings),
       api.get<SensorDevice[]>('/admin/devices').catch(() => fallbackDevices),
-      api.get<TimelineResponse>(`/admin/rooms/${id}/timeline`).catch(() => fallbackTimeline),
     ])
-      .then(([roomRes, readingsRes, devicesRes, timelineRes]) => {
+      .then(([roomRes, devicesRes]) => {
         setRoom(roomRes.data)
-        setReadings(readingsRes.data ?? [])
         setDevices((devicesRes.data ?? []).filter(d => d.room_id === id))
-        setTimeline(timelineRes.data ?? null)
       })
       .catch(err => setError(getApiErrorDetail(err) ?? 'Error cargando datos del aula.'))
       .finally(() => setLoading(false))
+  }, [id])
+
+  // Lecturas en vivo (10 s). Lecturas con timestamp inválido se descartan (no se inventa "ahora").
+  const fetchReadings = useCallback(async (isCancelled: () => boolean) => {
+    if (!id) return
+    try {
+      const { data } = await api.get<StoredReading[]>(`/sensors/?room_id=${encodeURIComponent(id)}&limit=60`)
+      if (isCancelled()) return
+      setReadings((data ?? []).filter(r => parseUtcMs(r.timestamp) != null))
+      setLastUpdated(Date.now())
+    } catch { /* se conserva el último estado; el badge cae a offline por antigüedad */ }
+  }, [id])
+
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    const isCancelled = () => cancelled
+    fetchReadings(isCancelled)
+    const t = setInterval(() => fetchReadings(isCancelled), READINGS_POLL_MS)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [id, fetchReadings])
+
+  // Indicadores derivados (30 s), con filtro de procedencia.
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    const load = () => api.get<NodeMetrics>('/reports/node-metrics', { params: { room_id: id, hours: 24, origin: originFilter } })
+      .then(res => {
+        if (cancelled) return
+        const data = res.data ?? null
+        // Sin lecturas del nodo físico → "Todas" con aviso visible (FE-3-03).
+        const sw = data ? originAutoSwitch({ filter: originFilter, touched: originTouched, fallback: originFallback, samples: data.samples, countsAll: data.origin_counts_all }) : null
+        if (sw) { setOriginFallback(sw === 'all'); setOriginFilter(sw); return }
+        setMetrics(data)
+      })
+      .catch(() => { if (!cancelled) setMetrics(null) })
+    load()
+    const t = setInterval(load, METRICS_POLL_MS)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [id, originFilter, originTouched, originFallback])
+
+  // Línea de tiempo 24 h (60 s).
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    const load = () => api.get<TimelineResponse>(`/admin/rooms/${id}/timeline`)
+      .then(res => { if (!cancelled) setTimeline(res.data ?? null) })
+      .catch(() => { if (!cancelled) setTimeline(null) })
+    load()
+    const t = setInterval(load, TIMELINE_POLL_MS)
+    return () => { cancelled = true; clearInterval(t) }
   }, [id])
 
   async function handleToggle(
@@ -333,8 +399,6 @@ export default function RoomDetail() {
     value: boolean,
   ) {
     setControlError(null)
-
-    // Optimistic update
     setDevices(prev =>
       prev.map(d =>
         d.sensor_id === sensorId ? { ...d, [field]: value, _updating: true } : d
@@ -359,7 +423,6 @@ export default function RoomDetail() {
         )
       )
     } catch (err: unknown) {
-      // Revert on failure
       setDevices(prev =>
         prev.map(d =>
           d.sensor_id === sensorId
@@ -368,19 +431,19 @@ export default function RoomDetail() {
         )
       )
       const detail = getApiErrorDetail(err)
-      setControlError(detail ?? 'Error al actualizar el sensor.')
+      setControlError(detail ?? 'Error al actualizar el nodo.')
     }
   }
 
   async function handlePolicyChange(value: string) {
     setControlError(null)
     const prev = room?.control_policy
-    setRoom(r => (r ? { ...r, control_policy: value } : r))   // optimistic
+    setRoom(r => (r ? { ...r, control_policy: value } : r))
     setPolicySaving(true)
     try {
       await api.put(`/admin/rooms/${id}/policy`, { control_policy: value })
     } catch (err: unknown) {
-      setRoom(r => (r ? { ...r, control_policy: prev ?? 'auto' } : r))   // revert
+      setRoom(r => (r ? { ...r, control_policy: prev ?? 'auto' } : r))
       const detail = getApiErrorDetail(err)
       setControlError(detail ?? 'No se pudo cambiar la política de control.')
     } finally {
@@ -391,69 +454,86 @@ export default function RoomDetail() {
   const hasSensors = devices.length > 0 || readings.length > 0
   const policy = room?.control_policy ?? 'auto'
 
-  const latest = (readings ?? [])[0] ?? null
-  const isOn = latest?.cognitive_action?.ac_status === 'ON'
+  const latest = readings[0] ?? null
+  const action = latest?.cognitive_action ?? null
+  const decision = decisionOf(action)
+  const fan = fanPwmOf(latest, action)
+  const allSimulated = readings.length > 0 && readings.every(isSimulatedReading)
+  const someSimulated = readings.some(isSimulatedReading)
+  const unknownOrigin = readings.filter(r => readingOrigin(r) === 'desconocido').length
+  const override = overrideNote(latest, action)
+  const nodeId = latest?.sensor_id ?? devices[0]?.sensor_id ?? null
+  const targetTemp = timeline?.target_temp ?? room?.target_temp ?? null
 
-  // Modelo activo — distinguir fallback heurístico vs modelo ML cargado.
-  const modelName = latest?.cognitive_action?.model
-  const modelIsHeuristic = (modelName ?? '').toLowerCase() === 'heuristic'
-  const modelIsMl = !!modelName && !['heuristic', 'none', ''].includes(modelName.toLowerCase())
-  const modelContext = modelIsHeuristic
-    ? 'ML no disponible · usando fórmula'
-    : modelIsMl
-      ? `Modelo ${modelName} · cargado`
-      : `Sensor: ${latest?.sensor_id ?? '—'}`
+  // Controlador real (no se asume): lo dice la lectura; si no, /health.
+  const controller = action?.active_controller ?? (action?.model && action.model !== 'none' ? action.model : null)
+  const controllerLabel = controller === 'ml' ? 'ML' : controller === 'manual' ? 'manual' : controller === 'heuristic' ? 'heurística' : 'sin dato'
+  const mlLoaded = health?.ml_loaded ?? (health?.engine ? health.engine === 'ml' : null)
 
-  // Línea de estado bajo las tarjetas de política cognitiva.
   const policyStatus =
     policy === 'manual'
-      ? `Modo manual · setpoint fijado en ${room?.target_temp ?? '—'}°C por admin`
-      : policy === 'heuristic'
-        ? 'Modo solo heurística · aplicando fórmula estática'
-        : `Modo automático activo${
-            modelName && modelName.toLowerCase() !== 'none'
-              ? ` · usando ${modelName}${modelIsHeuristic ? ' (fallback)' : ''}`
-              : ''
-          }`
+      ? `Modo manual · objetivo fijado en ${room?.target_temp ?? '—'}°C por el administrador`
+      : `${policy === 'heuristic' ? 'Modo solo heurística' : 'Modo automático'} · controla: ${controllerLabel} · ML: ${
+          mlLoaded == null ? 'estado desconocido' : mlLoaded ? 'en sombra (cargado)' : 'no cargado'
+        }`
 
-  // Build 24h ComposedChart rows from /timeline. Past hours carry the measured (with-AC)
-  // reality; future hours carry both the sin-AC ambient and the con-AC projection.
+  // Alarm: local (node buzzer/LED) vs server-side inference (co_ppm > 50).
+  const localAlarm = latest?.alarm_active === true
+  const serverAlarm = !localAlarm && latest?.co_ppm != null && latest.co_ppm > CO_ALARM_PPM
+
+  // Sensor series (chronological) — temp/hum and CO₂/CO. Respeta el filtro de
+  // procedencia de los KPI: no mezcla en una curva lecturas de otro origen (FE-3-11).
+  const seriesSrc = originFilter === 'all' ? readings : readings.filter(r => readingOrigin(r) === originFilter)
+  const seriesSim = seriesSrc.filter(isSimulatedReading).length
+  const seriesUnknown = seriesSrc.filter(r => readingOrigin(r) === 'desconocido').length
+  const series = [...seriesSrc].reverse().map(r => ({
+    time: new Date(parseUtcMs(r.timestamp) as number).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
+    temperatura: r.temperature,
+    humedad: r.humidity,
+    co2: r.co2_ppm,
+    co: r.co_ppm,
+    ventilador: fanPwmOf(r, r.cognitive_action).value,
+  }))
+
+  // Occupancy: reservation (plan) vs CO₂ estimate vs camera (validation).
+  const occExpected = action?.expected_occupancy ?? null
+  const occCo2 = action?.actual_occupancy ?? null
+  const occCam = latest?.camera_occupancy ?? null
+  const occError = occCo2 != null && occCam != null ? occCo2 - occCam : null
+
+  // Build 24h rows from /timeline. Past = measured; future = simulated diurnal model.
   const timelineRows: TimelineRow[] = (timeline?.timeline ?? []).map(p => {
     const isPast = p.phase === 'past' || p.phase === 'current'
-    const acOn = p.ac?.status === 'ON'
     return {
       time: formatHourLabel(p.hour),
       hour_iso: p.hour,
       phase: p.phase,
       temperatura_real: isPast ? (p.actual_temperature ?? null) : null,
-      temperatura_sin_ac: !isPast ? (p.predicted_temperature ?? null) : null,
-      temperatura_con_ac: !isPast ? (p.projected_temperature ?? null) : null,
-      ac_setpoint: isPast && acOn ? (p.ac.setpoint ?? null) : null,
+      temperatura_proyectada: !isPast ? (p.predicted_temperature ?? null) : null,
+      fan_pwm_real: isPast ? (p.fan_pwm ?? null) : null,
+      fan_pwm_plan: !isPast ? (p.planned_fan_pwm ?? null) : null,
       reserva_icon: null,
       reservation: p.reservation,
       expected_people: p.expected_people ?? 0,
       readings_count: p.readings_count ?? 0,
-      ac_status: p.ac?.status ?? null,
-      cooling_mode: p.ac?.cooling_mode ?? null,
+      simulated_count: p.simulated_count ?? 0,
+      decision: p.ac?.action ?? p.ac?.status ?? null,
     }
   })
 
-  // Comfort band around the configured target.
-  const TARGET_TOL = 1.0
-  const targetTemp = timeline?.target_temp ?? room?.target_temp ?? 25
-
+  // Banda de confort ÚNICA: la define el backend (misma que el KPI), sobre el objetivo configurado.
+  const TARGET_TOL = timeline?.comfort_band_c ?? metrics?.comfort_band_c ?? DEFAULT_COMFORT_BAND_C
+  // Sin objetivo configurado no se dibuja banda ni línea de objetivo (no se inventa un valor).
+  const tgt: number | null = timeline?.target_temp ?? room?.target_temp ?? null
   const tempPool = timelineRows
-    .flatMap(r => [r.temperatura_real, r.temperatura_sin_ac, r.temperatura_con_ac, r.ac_setpoint])
+    .flatMap(r => [r.temperatura_real, r.temperatura_proyectada])
     .filter((v): v is number => v != null)
-    .concat([targetTemp - TARGET_TOL, targetTemp + TARGET_TOL])
-  const minT = tempPool.length ? Math.min(...tempPool) : targetTemp - 3
-  const maxT = tempPool.length ? Math.max(...tempPool) : targetTemp + 3
-  // Reservation icons ride a fixed row just above the temperature ceiling.
+    .concat(tgt != null ? [tgt - TARGET_TOL, tgt + TARGET_TOL] : [])
+  const minT = tempPool.length ? Math.min(...tempPool) : 15
+  const maxT = tempPool.length ? Math.max(...tempPool) : 30
   const reservaY = maxT + 1.5
   const yDomain: [number, number] = [Math.floor(minT - 1), Math.ceil(reservaY + 0.5)]
 
-  // Collapse consecutive anchors sharing a reservation id into contiguous spans, and
-  // pin one icon at each span's first hour (so single-hour reservations stay visible).
   const reservationSpans: ReservationSpan[] = []
   const nowMs = timeline ? new Date(timeline.generated_at).getTime() : Date.now()
   for (const row of timelineRows) {
@@ -482,10 +562,20 @@ export default function RoomDetail() {
     )
   }
 
+  const tLvl = latest && targetTemp != null ? levelTemp(latest.temperature, action?.target ?? targetTemp) : null
+  const timelineSimPct = (() => {
+    const tot = timelineRows.reduce((a, r) => a + (r.phase !== 'future' ? r.readings_count : 0), 0)
+    const sim = timelineRows.reduce((a, r) => a + (r.phase !== 'future' ? r.simulated_count : 0), 0)
+    return tot > 0 ? Math.round(100 * sim / tot) : null
+  })()
+  const hLvl = latest ? levelHumedad(latest.humidity) : null
+  const c2Lvl = latest?.co2_ppm != null ? levelCO2(latest.co2_ppm) : null
+  const coLvl = latest?.co_ppm != null ? levelCO(latest.co_ppm) : null
+
   return (
     <div className="space-y-6">
-      {/* Header — always rendered */}
-      <div className="flex items-center gap-4">
+      {/* Header */}
+      <div className="flex items-center gap-4 flex-wrap">
         <button
           onClick={() => navigate('/rooms')}
           className="p-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-700 transition-colors"
@@ -498,107 +588,201 @@ export default function RoomDetail() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-white">{room?.name}</h1>
-            <p className="text-xs text-slate-400">Cap: {room?.max_capacity} · Target: {room?.target_temp}°C</p>
+            <p className="text-xs text-slate-400">Capacidad: {room?.max_capacity} · Temperatura objetivo: {room?.target_temp}°C</p>
           </div>
+        </div>
+        <div className="flex items-center gap-2 ml-auto flex-wrap">
+          {hasSensors && <NodeLinkBadge reading={latest} now={now} roomId={room?.id ?? id} intervalS={intervalOf(metrics)} />}
+          {allSimulated ? <SimulatedBadge reading={latest} /> : latest && <OriginBadge reading={latest} />}
+          <span className="flex items-center gap-1 text-[11px] text-slate-500" title="Lecturas cada 10 s · indicadores cada 30 s · línea de tiempo cada 60 s">
+            <RefreshCw size={11} /> {updatedAgo(lastUpdated, now)}
+          </span>
         </div>
       </div>
 
-      {/* Fatal error loading room info */}
       {error && (
         <div className="flex items-center gap-2 bg-red-900/30 border border-red-500/40 rounded-lg px-4 py-3 text-sm text-red-300">
           <AlertCircle size={16} className="shrink-0" /> {error}
         </div>
       )}
 
-      {/* No sensors — empty state inside main container */}
       {!error && !hasSensors && (
         <div className="flex flex-col items-center justify-center gap-5 bg-slate-800 border border-slate-700 rounded-xl px-8 py-16 text-center">
           <div className="w-16 h-16 rounded-full bg-slate-700/60 border border-slate-600 flex items-center justify-center">
             <WifiOff size={28} className="text-slate-500" />
           </div>
           <div className="space-y-2 max-w-sm">
-            <h3 className="text-slate-200 font-semibold text-base">Aula sin sensores</h3>
+            <h3 className="text-slate-200 font-semibold text-base">Aula sin nodo</h3>
             <p className="text-slate-400 text-sm leading-relaxed">
-              No hay dispositivos de telemetría asignados a esta aula. Por favor, asigne un sensor desde el panel de administración para comenzar a recibir datos.
+              No hay un nodo ESP32 asignado a esta aula. Asígnelo desde Infraestructura para comenzar a recibir su telemetría.
             </p>
           </div>
         </div>
       )}
 
-      {/* Dashboard data — only when sensors exist */}
       {!error && hasSensors && <>
 
-      {/* AC status + metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* AC status — brand-blue card, same visual DNA as the metric cards */}
-        <div className={`bg-slate-800/60 border border-slate-700/60 border-l-4 rounded-xl p-4 flex flex-col gap-3 ${isOn ? 'border-l-blue-500' : 'border-l-slate-600'}`}>
+      {/* Banners — procedencia y alarma */}
+      {allSimulated && (
+        <div className="flex items-start gap-2 bg-amber-900/30 border border-amber-500/40 rounded-xl px-4 py-3 text-sm text-amber-300">
+          <FlaskConical size={15} className="shrink-0 mt-0.5" />
+          <span><strong>Aula simulada.</strong> Todas las lecturas mostradas son sintéticas; el único nodo físico está en el aula piloto A403.</span>
+        </div>
+      )}
+      {!allSimulated && someSimulated && (
+        <div className="flex items-center gap-2 bg-amber-900/20 border border-amber-500/30 rounded-xl px-4 py-2.5 text-xs text-amber-300">
+          <FlaskConical size={13} className="shrink-0" /> Algunas lecturas son simuladas; se marcan en la tabla.
+        </div>
+      )}
+      {unknownOrigin > 0 && (
+        <div className="flex items-center gap-2 bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-xs text-slate-400">
+          <AlertCircle size={13} className="shrink-0" />
+          {unknownOrigin} de {readings.length} lecturas no declaran procedencia (data_origin): se muestran como “origen no declarado”, no como nodo físico.
+        </div>
+      )}
+      {(localAlarm || serverAlarm) && (
+        <div className="flex items-center gap-3 bg-red-900/40 border border-red-500/50 rounded-xl px-4 py-3">
+          <Siren size={20} className="text-red-400 shrink-0" />
+          <span className="text-sm text-red-200">
+            {localAlarm
+              ? <><strong>Alarma local activa en el nodo</strong> · buzzer y LED encendidos · ventilador al 100 % (override: decisión del servidor {decision ?? 'sin decisión'} ignorada)</>
+              : <><strong>CO sobre {CO_ALARM_PPM} ppm detectado por el servidor</strong> · el nodo no reportó alarma local</>}
+            {' '}· CO {fmtNum(latest?.co_ppm, ' ppm', 1)}
+          </span>
+        </div>
+      )}
+
+      {/* Estado + magnitudes */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="col-span-2 lg:col-span-1 bg-slate-800/60 border border-slate-700/60 border-l-4 border-l-blue-500 rounded-xl p-4 flex flex-col gap-3">
           <div className="flex items-start justify-between gap-2">
-            <span className={`w-9 h-9 rounded-lg ring-1 flex items-center justify-center ${
-              isOn ? 'bg-blue-500/10 ring-blue-500/30 text-blue-400' : 'bg-slate-700/40 ring-slate-600/40 text-slate-500'
-            }`}>
-              {isOn ? <Zap size={18} /> : <ZapOff size={18} />}
+            <span className="w-9 h-9 rounded-lg ring-1 bg-blue-500/10 ring-blue-500/30 text-blue-400 flex items-center justify-center">
+              <Fan size={18} />
             </span>
-            {/* Estado pill — verde Activo / rojo Apagado */}
-            <span className={`inline-flex items-center gap-1.5 text-[11px] rounded-full px-[9px] py-[3px] border ${
-              isOn ? 'bg-green-500/10 border-green-500/30 text-green-300' : 'bg-red-500/10 border-red-500/30 text-red-300'
-            }`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${isOn ? 'bg-green-500' : 'bg-red-500'}`} />
-              {isOn ? 'Activo' : 'Apagado'}
-            </span>
+            <div className="flex flex-col items-end gap-1">
+              <DecisionBadge state={decision} />
+              <AlarmOverrideBadge reading={latest} />
+            </div>
           </div>
           <div>
-            <p className="text-xs text-slate-400">AC Status</p>
-            <p className={`text-2xl font-bold leading-tight ${isOn ? 'text-blue-300' : 'text-slate-400'}`}>
-              {latest?.cognitive_action?.ac_status ?? '—'}
-            </p>
+            <p className="text-xs text-slate-400">Decisión · ventilador</p>
+            <p className="text-2xl font-bold leading-tight text-white tabular-nums">{fmtNum(fan.value, ' %', 0)}</p>
           </div>
-          {/* Modo de operación — pill con copo de nieve */}
-          {latest?.cognitive_action?.cooling_mode ? (
-            <span className="inline-flex items-center gap-1.5 self-start text-[11px] font-medium text-sky-400 bg-sky-400/10 border border-sky-400/30 rounded-full px-2.5 py-1">
-              <Snowflake size={12} /> {latest.cognitive_action.cooling_mode}
-            </span>
-          ) : (
-            <p className={`text-xs font-medium ${isOn ? 'text-sky-400' : 'text-slate-500'}`}>
-              {isOn ? 'Enfriando' : 'En espera'}
-            </p>
-          )}
+          <p className="text-xs text-slate-500">{override ?? `PWM ${fan.source} · controla: ${controllerLabel}`}</p>
         </div>
 
         <MetricCard
-          icon={<Thermometer size={18} />} label="Temperatura actual"
-          value={fmt(latest?.temperature, '', 1)} unit={latest ? '°C' : undefined}
-          status={tempStatus(latest?.temperature)}
-          statusText={latest ? STATUS_TOKENS[tempStatus(latest.temperature)].label : undefined}
-          sub={latest ? `Target ajustado: ${fmt(latest.cognitive_action?.target, '°C')}` : 'Sin datos'}
+          icon={<Thermometer size={18} />} label="Temperatura"
+          value={fmtNum(latest?.temperature, '', 1)} unit={latest ? '°C' : undefined}
+          status={tLvl ? LEVEL_TO_STATUS[tLvl] : 'normal'} tone={tLvl ? levelTone(tLvl) : undefined}
+          statusText={tLvl ? getStatusLabel(tLvl) : undefined}
+          sub={latest ? `Objetivo ajustado: ${fmtNum(action?.target, '°C')}` : 'Sin datos'}
         />
-
         <MetricCard
-          icon={<CloudFog size={18} />} label="Monóxido de CO"
-          value={fmt(latest?.co_ppm, '', 1)} unit={latest ? 'ppm' : undefined}
-          status={coStatus(latest?.co_ppm)}
-          statusText={latest ? STATUS_TOKENS[coStatus(latest.co_ppm)].label : undefined}
-          sub={latest ? 'Límite EPA: 50 ppm' : 'Sin datos'}
+          icon={<Droplets size={18} />} label="Humedad"
+          value={fmtNum(latest?.humidity, '', 0)} unit={latest ? '%' : undefined}
+          status={hLvl ? LEVEL_TO_STATUS[hLvl] : 'normal'} tone={hLvl ? levelTone(hLvl) : undefined}
+          statusText={hLvl ? getStatusLabel(hLvl) : undefined}
+          sub={latest ? 'DHT11' : 'Sin datos'}
         />
-
-        {/* Modelo activo — brand-purple card, same DNA */}
-        <div className="relative bg-slate-800/60 border border-slate-700/60 border-l-4 border-l-purple-500 rounded-xl p-4 flex flex-col gap-3">
-          {modelIsHeuristic && (
-            <span className="absolute top-3 right-3 text-[11px] font-medium text-purple-400 bg-purple-500/10 border border-purple-500/30 rounded-[5px] px-2 py-0.5">
-              Fallback
-            </span>
-          )}
-          <span className="w-9 h-9 rounded-lg ring-1 bg-purple-500/10 ring-purple-500/30 text-purple-400 flex items-center justify-center">
-            <Brain size={18} />
+        <MetricCard
+          icon={<Wind size={18} />} label="CO₂ (relativo)"
+          value={fmtNum(latest?.co2_ppm, '', 0)} unit={latest?.co2_ppm != null ? 'ppm' : undefined}
+          status={c2Lvl ? LEVEL_TO_STATUS[c2Lvl] : 'normal'} tone={c2Lvl ? levelTone(c2Lvl) : undefined}
+          statusText={c2Lvl ? getStatusLabel(c2Lvl) : undefined}
+          sub={latest?.co2_ppm != null ? 'MQ-135 · proxy de ocupación' : 'Sin dato'}
+        />
+        <MetricCard
+          icon={<CloudFog size={18} />} label="Monóxido de carbono (CO)"
+          value={fmtNum(latest?.co_ppm, '', 1)} unit={latest?.co_ppm != null ? 'ppm' : undefined}
+          status={coLvl ? LEVEL_TO_STATUS[coLvl] : 'normal'} tone={coLvl ? levelTone(coLvl) : undefined}
+          statusText={coLvl ? getStatusLabel(coLvl) : undefined}
+          sub={latest?.co_ppm != null ? `MQ-7 · alarma > ${CO_ALARM_PPM} ppm` : 'Sin dato'}
+        />
+        <div className="bg-slate-800/60 border border-slate-700/60 border-l-4 border-l-indigo-500 rounded-xl p-4 flex flex-col gap-2">
+          <span className="w-9 h-9 rounded-lg ring-1 bg-indigo-500/10 ring-indigo-500/30 text-indigo-400 flex items-center justify-center">
+            <Users size={18} />
           </span>
-          <div>
-            <p className="text-xs text-slate-400">Modelo activo</p>
-            <p className="text-2xl font-bold text-white capitalize leading-tight">{latest?.cognitive_action?.model ?? '—'}</p>
+          <p className="text-xs text-slate-400">Ocupación</p>
+          <div className="text-xs text-slate-300 space-y-0.5 tabular-nums">
+            <p>Reservada: <strong className="text-white">{occExpected ?? '—'}</strong></p>
+            <p>Estimada CO₂: <strong className="text-white">{fmtNum(occCo2, '', 0)}</strong></p>
+            <p>Cámara: <strong className="text-white">{occCam ?? '—'}</strong></p>
           </div>
-          <p className="text-xs text-slate-500 truncate">{modelContext}</p>
+          <p className="text-[11px] text-slate-500">
+            {occError != null ? `Error CO₂ − cámara: ${occError > 0 ? '+' : ''}${occError.toFixed(0)} pers.` : 'Sin conteo de cámara para validar'}
+          </p>
         </div>
       </div>
 
-      {/* Cognitive policy — per-room engine selection as radio cards */}
+      {/* Indicadores de funcionamiento */}
+      <Section
+        icon={<Activity size={15} className="text-emerald-400" />}
+        title="Indicadores de funcionamiento · últimas 24 h"
+        right={<OriginToggle value={originFilter} onChange={changeOrigin} />}
+      >
+        <OriginFallbackNotice active={originFallback && originFilter === 'all'} />
+        {metrics && <p className="text-[11px] text-slate-500 -mt-2 mb-3">{originSummary(metrics)}</p>}
+        <NodeKpiGrid metrics={metrics} />
+      </Section>
+
+      {/* Actuadores + enlace */}
+      <Section icon={<Fan size={15} className="text-sky-400" />} title="Actuadores del nodo">
+        <ActuatorPanel reading={latest} action={action} />
+      </Section>
+      <Section icon={<Network size={15} className="text-blue-400" />} title="Nodo ESP32 y enlace">
+        <NodeLinkPanel roomId={room?.id ?? id} sensorId={nodeId} reading={latest} metrics={metrics} now={now} />
+      </Section>
+
+      {/* Heurística vs ML */}
+      <Section icon={<GitCompare size={15} className="text-violet-400" />} title="Heurística vs ML (sombra)">
+        <HeuristicVsMl action={action} metrics={metrics} mlLoaded={mlLoaded} />
+      </Section>
+
+      {/* Series de sensores */}
+      <Section
+        icon={<LineChartIcon size={15} className="text-sky-400" />}
+        title={`Series de sensores · últimas ${series.length} lecturas${originFilter === 'node' ? ' del nodo físico' : ''}${seriesSim > 0 ? ` (${seriesSim} simuladas)` : ''}${seriesUnknown > 0 ? ` (${seriesUnknown} sin origen declarado)` : ''}`}
+      >
+        {series.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            {readings.length > 0 && originFilter !== 'all'
+              ? 'Sin lecturas del nodo físico entre las últimas recibidas: cambia a “Todas” para graficar las de otro origen.'
+              : 'Sin lecturas para graficar.'}
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={series} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="time" stroke="#64748b" tick={{ fontSize: 10 }} minTickGap={28} />
+                <YAxis yAxisId="t" stroke="#64748b" tick={{ fontSize: 10 }} domain={['dataMin - 1', 'dataMax + 1']} allowDecimals={false} />
+                <YAxis yAxisId="p" orientation="right" stroke="#64748b" tick={{ fontSize: 10 }} domain={[0, 100]} />
+                <Tooltip contentStyle={CHART_TOOLTIP} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line yAxisId="t" dataKey="temperatura" name="Temperatura (°C)" stroke="#38bdf8" dot={false} strokeWidth={2} connectNulls={false} isAnimationActive={false} />
+                <Line yAxisId="p" dataKey="humedad" name="Humedad (%)" stroke="#a855f7" dot={false} strokeWidth={1.5} connectNulls={false} isAnimationActive={false} />
+                <Line yAxisId="p" dataKey="ventilador" name="Ventilador (%)" stroke="#22c55e" dot={false} strokeWidth={1.5} strokeDasharray="4 3" connectNulls={false} isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={series} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="time" stroke="#64748b" tick={{ fontSize: 10 }} minTickGap={28} />
+                <YAxis yAxisId="c2" stroke="#64748b" tick={{ fontSize: 10 }} />
+                <YAxis yAxisId="co" orientation="right" stroke="#64748b" tick={{ fontSize: 10 }} />
+                <Tooltip contentStyle={CHART_TOOLTIP} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <ReferenceLine yAxisId="co" y={CO_ALARM_PPM} stroke="#ef4444" strokeDasharray="4 2" strokeOpacity={0.6} />
+                <Line yAxisId="c2" dataKey="co2" name="CO₂ (ppm)" stroke="#eab308" dot={false} strokeWidth={2} connectNulls={false} isAnimationActive={false} />
+                <Line yAxisId="co" dataKey="co" name="CO (ppm)" stroke="#f97316" dot={false} strokeWidth={1.5} connectNulls={false} isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Section>
+
+      {/* Política cognitiva */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="flex items-center gap-2 text-slate-300 text-sm font-semibold uppercase tracking-wide">
@@ -610,7 +794,6 @@ export default function RoomDetail() {
             </span>
           )}
         </div>
-
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           {POLICY_CARDS.map(card => (
             <PolicyCard
@@ -622,18 +805,17 @@ export default function RoomDetail() {
             />
           ))}
         </div>
-
         <p className="flex items-center gap-1.5 text-[13px] text-slate-500 mt-4">
           {policySaving && <RefreshCw size={12} className="animate-spin shrink-0" />}
           {policyStatus}
         </p>
       </div>
 
-      {/* Sensor management card */}
+      {/* Gestión de nodos */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="flex items-center gap-2 text-slate-300 text-sm font-semibold uppercase tracking-wide">
-            <SlidersHorizontal size={15} className="text-blue-400" /> Gestión de Sensores
+            <SlidersHorizontal size={15} className="text-blue-400" /> Gestión del nodo
           </h2>
           {isGuest && (
             <span className="text-xs text-amber-400 bg-amber-900/30 border border-amber-500/30 px-2 py-0.5 rounded-full">
@@ -650,33 +832,31 @@ export default function RoomDetail() {
 
         {devices.length === 0 ? (
           <div className="flex items-center gap-2 text-slate-500 text-sm py-4">
-            <Cpu size={16} /> No hay sensores registrados para esta aula.
+            <Cpu size={16} /> No hay nodos registrados para esta aula.
           </div>
         ) : (
           <div className="space-y-3">
             {devices.map(device => (
               <div key={device.sensor_id} className="bg-slate-700/40 border border-slate-700 rounded-lg px-4 py-3">
-                {/* Sensor header */}
                 <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-700/60">
                   <Radio size={13} className={device.is_active ? 'text-emerald-400' : 'text-slate-500'} />
                   <span className="font-mono text-xs font-semibold text-slate-200">{device.sensor_id}</span>
+                  <span className="text-[10px] text-slate-500">Nodo ESP32</span>
                   {device._updating && (
                     <RefreshCw size={11} className="animate-spin text-slate-400 ml-auto" />
                   )}
                 </div>
-
-                {/* Toggles */}
                 <div className="divide-y divide-slate-700/40">
                   <Toggle
-                    label="Recibir Datos"
-                    sublabel="El sensor envía telemetría al sistema"
+                    label="Recibir datos"
+                    sublabel="El nodo publica telemetría y el sistema la registra"
                     checked={device.is_active}
                     disabled={isGuest || !!device._updating}
                     onChange={v => handleToggle(device.sensor_id, 'is_active', v)}
                   />
                   <Toggle
-                    label="Controlar AC"
-                    sublabel="El sistema puede emitir acciones cognitivas"
+                    label="Controlar actuadores"
+                    sublabel="El sistema puede comandar ventilador y PTC (si no, decisión DISABLED)"
                     checked={device.control_enabled}
                     disabled={isGuest || !!device._updating}
                     onChange={v => handleToggle(device.sensor_id, 'control_enabled', v)}
@@ -688,7 +868,7 @@ export default function RoomDetail() {
         )}
       </div>
 
-      {/* 24h Timeline ComposedChart */}
+      {/* 24h Timeline */}
       <div className="bg-slate-800 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-slate-300 text-sm font-semibold uppercase tracking-wide">
@@ -697,6 +877,9 @@ export default function RoomDetail() {
           {timeline && (
             <span className="text-xs text-slate-500">
               Generado {new Date(timeline.generated_at).toLocaleTimeString('es')}
+              {timelineSimPct != null && timelineSimPct > 0 && (
+                <span className="text-amber-400"> · {timelineSimPct} % de las lecturas pasadas son simuladas</span>
+              )}
             </span>
           )}
         </div>
@@ -705,42 +888,43 @@ export default function RoomDetail() {
             <EmptyState
               icon={<LineChartIcon size={22} />}
               title="Sin línea de tiempo disponible"
-              hint="La proyección de 24 h se construye a partir de lecturas y reservas. Aparecerá en cuanto el aula registre actividad."
+              hint="La línea de tiempo se construye a partir de lecturas y reservas. Aparecerá en cuanto el aula registre actividad."
             />
           </div>
         ) : (
           <>
             <ResponsiveContainer width="100%" height={320}>
-              <ComposedChart data={timelineRows} margin={{ top: 24, right: 16, left: 0, bottom: 8 }}>
+              <ComposedChart data={timelineRows} margin={{ top: 24, right: 8, left: 0, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                 <XAxis dataKey="time" stroke="#64748b" tick={{ fontSize: 11 }} interval="preserveStartEnd" minTickGap={32} />
-                <YAxis
-                  stroke="#64748b"
-                  tick={{ fontSize: 11 }}
-                  domain={yDomain}
-                  allowDecimals={false}
-                />
-                {/* Comfort band around the configured target (drawn first → behind series) */}
-                <ReferenceArea
-                  y1={targetTemp - TARGET_TOL}
-                  y2={targetTemp + TARGET_TOL}
-                  fill="#22c55e"
-                  fillOpacity={0.14}
-                  stroke="#22c55e"
-                  strokeOpacity={0.38}
-                  ifOverflow="extendDomain"
-                />
-                <ReferenceLine
-                  y={targetTemp}
-                  stroke="#22c55e"
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  label={{ value: `Target ${targetTemp}°C`, fill: '#4ade80', position: 'insideTopRight', fontSize: 10 }}
-                />
-                {/* Reservation interval bands — índigo (esperada) / gris (cumplida) */}
+                <YAxis yAxisId="t" stroke="#64748b" tick={{ fontSize: 11 }} domain={yDomain} allowDecimals={false} />
+                <YAxis yAxisId="pwm" orientation="right" stroke="#64748b" tick={{ fontSize: 11 }} domain={[0, 100]} unit="%" />
+                {tgt != null && (
+                  <ReferenceArea
+                    yAxisId="t"
+                    y1={tgt - TARGET_TOL}
+                    y2={tgt + TARGET_TOL}
+                    fill="#22c55e"
+                    fillOpacity={0.14}
+                    stroke="#22c55e"
+                    strokeOpacity={0.38}
+                    ifOverflow="extendDomain"
+                  />
+                )}
+                {tgt != null && (
+                  <ReferenceLine
+                    yAxisId="t"
+                    y={tgt}
+                    stroke="#22c55e"
+                    strokeDasharray="2 4"
+                    strokeOpacity={0.55}
+                    label={{ value: `Objetivo ${tgt}°C`, fill: '#4ade80', position: 'insideTopRight', fontSize: 10 }}
+                  />
+                )}
                 {reservationSpans.map((s, i) => (
                   <ReferenceArea
                     key={`res-${s.reservation.id}-${i}`}
+                    yAxisId="t"
                     x1={s.x1}
                     x2={s.x2}
                     fill={s.isPast ? '#64748b' : '#6366f1'}
@@ -750,65 +934,28 @@ export default function RoomDetail() {
                     strokeDasharray="3 3"
                   />
                 ))}
-                <Tooltip
-                  content={<CustomTooltip />}
-                  cursor={{ stroke: '#475569', strokeDasharray: '2 2' }}
-                />
+                <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#475569', strokeDasharray: '2 2' }} />
                 {nowLabel && (
                   <ReferenceLine
+                    yAxisId="t"
                     x={nowLabel}
                     stroke="#eab308"
                     strokeDasharray="3 3"
                     label={{ value: 'AHORA', fill: '#eab308', position: 'top', fontSize: 11 }}
                   />
                 )}
-                {/* Past — real temperature area (celeste) + AC setpoint (rojo intermitente) */}
-                <Area
-                  type="monotone"
-                  dataKey="temperatura_real"
-                  stroke="#38bdf8"
-                  fill="#38bdf8"
-                  fillOpacity={0.15}
-                  strokeWidth={2}
-                  connectNulls={false}
-                  isAnimationActive={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="ac_setpoint"
-                  stroke="#ef4444"
-                  strokeDasharray="5 5"
-                  strokeWidth={2}
-                  dot={false}
-                  connectNulls={false}
-                  isAnimationActive={false}
-                />
-                {/* Future — sin-AC ambient (ámbar, lo que pasaría sin enfriar) vs
-                    con-AC projection (azul, temperatura mitigada hacia el target) */}
-                <Area
-                  type="monotone"
-                  dataKey="temperatura_sin_ac"
-                  stroke="#f97316"
-                  fill="#f97316"
-                  fillOpacity={0.18}
-                  strokeWidth={2}
-                  strokeDasharray="4 3"
-                  connectNulls={false}
-                  isAnimationActive={false}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="temperatura_con_ac"
-                  stroke="#38bdf8"
-                  strokeOpacity={0.45}
-                  fill="#38bdf8"
-                  fillOpacity={0.18}
-                  strokeWidth={2}
-                  connectNulls={false}
-                  isAnimationActive={false}
-                />
-                {/* Reservation icon — calendar marker pinned above each span's first hour */}
+                {/* Pasado — temperatura medida + PWM promedio del ventilador */}
+                <Area yAxisId="t" type="monotone" dataKey="temperatura_real" stroke="#38bdf8" fill="#38bdf8"
+                  fillOpacity={0.15} strokeWidth={2} connectNulls={false} isAnimationActive={false} />
+                <Line yAxisId="pwm" type="stepAfter" dataKey="fan_pwm_real" stroke="#22c55e" strokeWidth={1.5}
+                  dot={false} connectNulls={false} isAnimationActive={false} />
+                {/* Futuro — proyección del modelo diurno (simulada) + PWM planificado */}
+                <Area yAxisId="t" type="monotone" dataKey="temperatura_proyectada" stroke="#f97316" fill="#f97316"
+                  fillOpacity={0.12} strokeWidth={2} strokeDasharray="4 3" connectNulls={false} isAnimationActive={false} />
+                <Line yAxisId="pwm" type="stepAfter" dataKey="fan_pwm_plan" stroke="#22c55e" strokeOpacity={0.6}
+                  strokeDasharray="5 4" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />
                 <Scatter
+                  yAxisId="t"
                   dataKey="reserva_icon"
                   shape={(props: { cx?: number; cy?: number }) => {
                     if (props.cx == null || props.cy == null) return <g />
@@ -822,27 +969,28 @@ export default function RoomDetail() {
                 />
               </ComposedChart>
             </ResponsiveContainer>
-            {/* Minimalist Tailwind legend — gris y negro */}
             <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-400 border-t border-slate-700 pt-3">
               <span className="flex items-center gap-2">
                 <span className="inline-block w-4 h-2 rounded-sm bg-sky-400/20 border border-sky-400" />
-                <span>Temperatura real</span>
+                <span>Temperatura registrada (promedio horario; ver % simulada en el detalle)</span>
               </span>
               <span className="flex items-center gap-2">
                 <span className="inline-block w-4 h-2 rounded-sm bg-orange-500/20 border border-dashed border-orange-500" />
-                <span>Temperatura sin AC (esperada)</span>
+                <span>Temperatura proyectada (modelo diurno, simulada)</span>
               </span>
               <span className="flex items-center gap-2">
-                <span className="inline-block w-4 h-2 rounded-sm bg-sky-400/40 border border-sky-400" />
-                <span>Temperatura con AC (proyectada)</span>
+                <span className="inline-block w-5 border-t-2 border-green-500" />
+                <span>Ventilador PWM % (reportado por el nodo o comandado, eje derecho)</span>
               </span>
               <span className="flex items-center gap-2">
-                <span className="inline-block w-5 border-t border-dashed border-red-500" />
-                <span>Setpoint AC (pasado)</span>
+                <span className="inline-block w-5 border-t-2 border-dashed border-green-500/60" />
+                <span>Ventilador PWM % (planificado)</span>
               </span>
               <span className="flex items-center gap-2">
                 <span className="inline-block w-4 h-2 rounded-sm bg-green-500/20 border border-green-500/60" />
-                <span>Banda Target ±{TARGET_TOL}°C</span>
+                <span>{tgt != null
+                  ? `Banda de confort: objetivo configurado ±${TARGET_TOL}°C (bajo la banda = aula fría, no penaliza al ventilador)`
+                  : 'Objetivo no configurado: sin banda de confort'}</span>
               </span>
               <span className="flex items-center gap-2">
                 <CalendarClock size={13} className="text-indigo-400" />
@@ -864,38 +1012,42 @@ export default function RoomDetail() {
           <EmptyState
             icon={<Inbox size={22} />}
             title="Sin lecturas todavía"
-            hint="Cuando el sensor de esta aula envíe telemetría, las últimas lecturas aparecerán aquí."
+            hint="Cuando el nodo de esta aula publique telemetría, las últimas lecturas aparecerán aquí."
             action={{ label: 'Enviar una lectura desde el Dashboard', onClick: () => navigate('/') }}
           />
         ) : (
-          <table className="w-full min-w-[640px] text-sm">
+          <table className="w-full min-w-[820px] text-sm">
             <thead>
               <tr className="text-slate-400 text-xs uppercase border-b border-slate-700">
-                {['Sensor', 'Temp', 'Humedad', 'CO₂', 'CO', 'AC', 'Timestamp'].map(h => (
+                {['Nodo', 'Origen', 'Temp', 'Humedad', 'CO₂', 'CO', 'Ventilador', 'Decisión', 'Fecha y hora'].map(h => (
                   <th key={h} className="text-left pb-2 pr-4">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {readings.slice(0, 20).map(r => (
-                <tr key={`${r.sensor_id}-${r.timestamp}`} className="border-b border-slate-700/50">
-                  <td className="py-2 pr-4 font-mono text-slate-300 text-xs">{r.sensor_id}</td>
-                  <td className={`py-2 pr-4 font-semibold ${getColorTemp(r.temperature, r.cognitive_action?.target ?? targetTemp)}`}>
-                    {fmt(r.temperature, '°C')}
-                  </td>
-                  <td className={`py-2 pr-4 font-semibold ${getColorHumedad(r.humidity)}`}>{fmt(r.humidity, '%')}</td>
-                  <td className={`py-2 pr-4 font-semibold ${getColorCO2(r.co2_ppm ?? 0)}`}>{fmt(r.co2_ppm, '', 0)}</td>
-                  <td className={`py-2 pr-4 font-semibold ${getColorCO(r.co_ppm ?? 0)}`}>
-                    {fmt(r.co_ppm, ' ppm', 1)}
-                  </td>
-                  <td className="py-2 pr-4">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${r.cognitive_action?.ac_status === 'ON' ? 'bg-blue-900/50 text-blue-300' : 'bg-slate-700 text-slate-400'}`}>
-                      {r.cognitive_action?.ac_status ?? '—'}
-                    </span>
-                  </td>
-                  <td className="py-2 text-slate-400 text-xs">{parseUtcTs(r.timestamp).toLocaleString('es')}</td>
-                </tr>
-              ))}
+              {readings.slice(0, 20).map(r => {
+                const st = decisionOf(r.cognitive_action)
+                const fp = fanPwmOf(r, r.cognitive_action)
+                return (
+                  <tr key={`${r.sensor_id}-${r.timestamp}`} className="border-b border-slate-700/50">
+                    <td className="py-2 pr-4 font-mono text-slate-300 text-xs">{r.sensor_id}</td>
+                    <td className="py-2 pr-4"><OriginBadge reading={r} compact /></td>
+                    <td className={`py-2 pr-4 font-semibold ${(r.cognitive_action?.target ?? tgt) != null ? getColorTemp(r.temperature, (r.cognitive_action?.target ?? tgt) as number) : NEUTRAL_TEXT}`}>
+                      {fmtNum(r.temperature, '°C')}
+                    </td>
+                    <td className={`py-2 pr-4 font-semibold ${getColorHumedad(r.humidity)}`}>{fmtNum(r.humidity, '%')}</td>
+                    <td className={`py-2 pr-4 font-semibold ${r.co2_ppm != null ? getColorCO2(r.co2_ppm) : NEUTRAL_TEXT}`}>{fmtNum(r.co2_ppm, '', 0)}</td>
+                    <td className={`py-2 pr-4 font-semibold ${r.co_ppm != null ? getColorCO(r.co_ppm) : NEUTRAL_TEXT}`}>
+                      {fmtNum(r.co_ppm, ' ppm', 1)}
+                    </td>
+                    <td className="py-2 pr-4 text-slate-300 tabular-nums">
+                      {fmtNum(fp.value, ' %', 0)}{fp.source === 'comandado' && <span className="text-[10px] text-slate-500"> cmd</span>}
+                    </td>
+                    <td className="py-2 pr-4"><DecisionBadge state={st} /></td>
+                    <td className="py-2 text-slate-400 text-xs">{new Date(parseUtcMs(r.timestamp) as number).toLocaleString('es')}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}

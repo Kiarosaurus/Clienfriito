@@ -12,7 +12,7 @@
 > 🌐 **Live instance:** [kiarosaurus.me](https://kiarosaurus.me) · 📖 Technical deep-dive: [TECHNICAL_DOCUMENTATION.md](./TECHNICAL_DOCUMENTATION.md) · 📄 Project report (Spanish, rubric): [`informe/informe.pdf`](./informe/informe.pdf)
 
 <!-- Screenshots: drop PNGs into docs/assets/ and uncomment.
-| Global dashboard | Room detail | ROI report |
+| Global dashboard | Room detail | Node consumption (screenshot pending update) |
 |---|---|---|
 | ![Dashboard](docs/assets/dashboard.png) | ![Room detail](docs/assets/room-detail.png) | ![ROI](docs/assets/roi.png) |
 -->
@@ -28,7 +28,7 @@ Every sensor reading is enriched with **room context** (capacity, target tempera
 On top of the control loop, CCS provides:
 
 - A **real-time CO (carbon monoxide) emergency monitor** that separates genuine hardware alerts from simulated/test traffic.
-- An **ROI report** that compares cognitive energy consumption against a traditional "always-on" baseline and reports the savings in **kWh and USD**.
+- A **node consumption report** (route `/roi`, kept for compatibility) with the energy and cost of the ESP32 node itself — kWh and currency per day / month / year. No comparison against an always-on AC baseline (CS5055 rule; see `docs/hardware-spec.md`).
 - A **conversational assistant** (IBM Watson Assistant) embedded in the UI for natural-language queries.
 - **Role-based access control** (admin / collaborator / guest) with reservation-gated device control.
 
@@ -42,7 +42,8 @@ On top of the control loop, CCS provides:
 - **🔀 Dual-Mode Prediction with Graceful Degradation** — Uses a trained scikit-learn `HistGradientBoostingRegressor` (loaded as a **bundle** with its feature contract, room map and metadata) when `model.joblib` is present; automatically falls back to a transparent heuristic when it isn't. The API never goes down for lack of a model.
 - **🗄️ Polyglot Persistence** — High-volume, schemaless sensor telemetry lives in **MongoDB**; relational configuration (users, rooms, schedules, devices, reservations) lives in **PostgreSQL**. Each store is used for what it's best at.
 - **🚨 Real-Time CO Emergency Monitor** — Surfaces `CO > 50 ppm` alerts from a rolling 15-second window, with a hard-fallback classifier that buckets each alert as *real* vs *simulated* and self-purges stale simulation data every polling cycle.
-- **💵 ROI / Energy-Savings Report** — Reconstructs AC runtime from the stored `cognitive_action` history, contrasts it against a 100%-uptime traditional baseline, and computes savings in kWh and USD over a 7-day window.
+- **🔌 Node consumption** — Time-weighted average power of the node over 7 days: actuator branch measured by the INA219 (`power_w`) plus the nominal logic power (ESP32 + MQ heaters + DHT11, divided by the buck efficiency), labelled "estimado". Reports kWh and cost per day / month / year and, as the only allowed comparison, heuristic vs ML-shadow energy in the same window.
+- **📈 Node metrics** — `GET /api/v1/reports/node-metrics`: availability (LWT or inferred), % valid readings, latency p50/p95 vs 3 s, comfort band against the configured target, heuristic/ML agreement, CO₂-vs-camera occupancy error, CO alarm time, fan cycles and energy. `?origin=node` keeps only readings explicitly marked `data_origin="node"`.
 - **💬 Conversational Assistant** — IBM Watson Assistant integration exposed as a session-based chat endpoint and a floating in-app chat widget.
 - **🔐 RBAC + JWT Auth** — Argon2 password hashing (self-healing admin seed), short-lived JWTs, and reservation-aware authorization (collaborators can only control devices in rooms they currently hold).
 - **🛡️ Resilient Startup** — PostgreSQL connection retries, idempotent in-code schema migrations (handling cases `create_all()` can't), and an auto-seeded admin account.
@@ -94,7 +95,7 @@ The decisions that best explain the design — each with a full writeup in the [
 ```
                          ┌──────────────────────────────┐
    Sensors / Simulator   │   React + Vite Frontend       │
-        │                │   (dashboards, chat, ROI)     │
+        │                │   (dashboards, chat, consumo) │
         │ POST readings  └───────────────┬───────────────┘
         │                                │ REST (Axios + JWT)
         ▼                                ▼
@@ -111,7 +112,7 @@ The decisions that best explain the design — each with a full writeup in the [
 │             save_reading ───────────────────────────────┼──► MongoDB
 │                                                         │   (sensor_readings)
 │  /chat ──► IBM Watson Assistant                         │
-│  /reports ─► ROI energy-savings calculator              │
+│  /reports ─► node consumption + node metrics            │
 │  /auth ──► JWT + RBAC                                    │
 └─────────────────────────────────────────────────────────┘
                      ▲
@@ -178,7 +179,7 @@ Climate-Cognitive-System/
 
 - **Docker** ≥ 24.0 & **Docker Compose** ≥ 2.0 (recommended path)
 - **Git**
-- For manual/local runs: **Python 3.12+**, plus a running **PostgreSQL 15** and **MongoDB 6**
+- For manual/local runs: **Python 3.12+** (minimum 3.10; on 3.10 pip installs scikit-learn 1.7.x, verified to give the same predictions with the shipped model), plus a running **PostgreSQL 15** and **MongoDB 6**. Tests: `pip install -r backend/requirements-dev.txt` (includes `pytest-asyncio`)
 - *(Optional)* IBM Watson Assistant credentials for the chat feature
 
 ---
@@ -327,6 +328,17 @@ Example response — note the predicted cognitive action:
 }
 ```
 
+> `cooling_mode` is a **deprecated** legacy field: it reads `"PRE-COOLING"` for every
+> `ON` decision. Use `action` (`ON` | `PRE-COOLING` | `STANDBY` | `DISABLED`) instead.
+
+### Optional MQTT bridge (CS5055)
+
+Disabled by default. Set `MQTT_BROKER_URL` (e.g. `mqtt://broker:1883`) to subscribe to
+`ccs/+/telemetry` and `ccs/+/status` (LWT) and publish the decision to `ccs/<room>/cmd`
+(retained). Telemetry goes through the same ingestion path as `POST /api/v1/sensors/`.
+`/health` reports `mqtt: disabled | connected | disconnected`. Topic names are pending
+confirmation with the firmware.
+
 ### Poll CO emergencies (admin / collaborator)
 ```bash
 curl http://localhost:8000/api/v1/sensors/emergencies \
@@ -392,7 +404,8 @@ python ml_pipeline/train_model.py     # → backend/app/ml/model.joblib
 | GET    | `/api/v1/sensors/emergencies`         | API key + JWT (admin/collab) | Real-time CO alerts                           |
 | PUT    | `/api/v1/sensors/{id}/control`        | API key + JWT (no guests; collaborator needs an active reservation) | Toggle device active / control-enabled |
 | POST   | `/api/v1/chat/`                       | API key (+ optional JWT, forwarded to Watson actions as session variables) | Watson Assistant conversation |
-| GET    | `/api/v1/reports/roi`                 | JWT (admin)                  | ROI / energy-savings report                   |
+| GET    | `/api/v1/reports/roi`                 | JWT (admin)                  | Node consumption (kWh / cost of the node; no AC baseline) |
+| GET    | `/api/v1/reports/node-metrics`        | JWT                          | Derived node indicators (`room_id`, `sensor_id`, `hours`, `origin`) |
 | *      | `/api/v1/admin/...`                   | JWT (admin; reservations & timeline also collaborator) | Manage users, rooms, schedules, reservations |
 
 > The API key rows apply router-wide: every `/sensors` and `/chat` route also passes

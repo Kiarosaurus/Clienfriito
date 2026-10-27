@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 790" role="img" aria-labelledby="title desc">
+  <title id="title">Conexión exacta de ESP32 DevKit V1 a DHT11 para la primera prueba</title>
+  <desc id="desc">Tres cables: 3V3 a VCC, GPIO27 a DATA y GND a GND. Alimentación por USB al ESP32. El orden físico de los pines se comprueba en la serigrafía de cada placa.</desc>
+  <defs>
+    <linearGradient id="board" x2="0" y2="1"><stop stop-color="#203746"/><stop offset="1" stop-color="#0c1822"/></linearGradient>
+    <linearGradient id="sensor" x2="0" y2="1"><stop stop-color="#287bc9"/><stop offset="1" stop-color="#1263ac"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="8" stdDeviation="9" flood-opacity=".2"/></filter>
+    <style>
+      text{font-family:Arial,Helvetica,sans-serif;fill:#172432}
+      .title{font-size:34px;font-weight:700}
+      .small{font-size:20px}
+      .label{font-size:25px;font-weight:700}
+      .pin{font-size:24px;font-weight:700;fill:#fff}
+      .note{font-size:21px}
+    </style>
+  </defs>
+  <rect width="1400" height="790" fill="#f5f7f8"/>
+  <text x="700" y="56" text-anchor="middle" class="title">Primera prueba: solo 3 cables, sin protoboard</text>
+  <text x="700" y="90" text-anchor="middle" class="small">Busca los nombres impresos en TU placa. La posición dibujada es una guía visual.</text>
+  <text x="70" y="144" class="label">ESP32 DevKit V1 (30 pines)</text>
+  <text x="1025" y="144" class="label">Módulo DHT11 de 3 pines</text>
+  <rect x="72" y="166" width="390" height="475" rx="20" fill="url(#board)" filter="url(#shadow)"/>
+  <rect x="165" y="195" width="205" height="181" rx="15" fill="#b9bec0" stroke="#77838b" stroke-width="6"/>
+  <path d="M195 237h145m-145 28h145m-145 28h145m-145 28h145" stroke="#a1aaaf" stroke-width="9"/>
+  <text x="267" y="433" text-anchor="middle" fill="#fff" font-size="26" font-weight="700">ESP32-WROOM-32</text>
+  <rect x="202" y="623" width="125" height="49" rx="9" fill="#aab4ba" stroke="#58646d" stroke-width="6"/>
+  <text x="264" y="714" text-anchor="middle" class="small">USB al PC (al final)</text>
+  <circle cx="459" cy="249" r="21" fill="#e6a44f" stroke="#fff" stroke-width="5"/>
+  <circle cx="459" cy="396" r="21" fill="#e6a44f" stroke="#fff" stroke-width="5"/>
+  <circle cx="459" cy="543" r="21" fill="#e6a44f" stroke="#fff" stroke-width="5"/>
+  <rect x="86" y="224" width="346" height="49" rx="8" fill="#c32932"/><text x="259" y="257" text-anchor="middle" class="pin">3V3 (3,3 V)</text>
+  <rect x="86" y="371" width="346" height="49" rx="8" fill="#ad7100"/><text x="259" y="404" text-anchor="middle" class="pin">GPIO27 / D27 / 27</text>
+  <rect x="86" y="518" width="346" height="49" rx="8" fill="#262e36"/><text x="259" y="551" text-anchor="middle" class="pin">GND</text>
+  <rect x="1007" y="183" width="315" height="427" rx="17" fill="#1b2430" filter="url(#shadow)"/>
+  <rect x="1063" y="212" width="206" height="225" rx="19" fill="url(#sensor)"/>
+  <g fill="#1f5790"><rect x="1090" y="245" width="21" height="21"/><rect x="1130" y="245" width="21" height="21"/><rect x="1170" y="245" width="21" height="21"/><rect x="1210" y="245" width="21" height="21"/><rect x="1090" y="288" width="21" height="21"/><rect x="1130" y="288" width="21" height="21"/><rect x="1170" y="288" width="21" height="21"/><rect x="1210" y="288" width="21" height="21"/><rect x="1090" y="331" width="21" height="21"/><rect x="1130" y="331" width="21" height="21"/><rect x="1170" y="331" width="21" height="21"/><rect x="1210" y="331" width="21" height="21"/></g>
+  <text x="1165" y="471" text-anchor="middle" fill="#fff" font-size="23" font-weight="700">DHT11</text>
+  <circle cx="1007" cy="249" r="21" fill="#d6dfe4" stroke="#75808a" stroke-width="5"/>
+  <circle cx="1007" cy="396" r="21" fill="#d6dfe4" stroke="#75808a" stroke-width="5"/>
+  <circle cx="1007" cy="543" r="21" fill="#d6dfe4" stroke="#75808a" stroke-width="5"/>
+  <text x="1144" y="260" text-anchor="middle" class="pin">VCC / +</text>
+  <text x="1144" y="407" text-anchor="middle" class="pin">DATA / OUT / S</text>
+  <text x="1144" y="554" text-anchor="middle" class="pin">GND / −</text>
+  <path d="M480 249H986" stroke="#b7242e" stroke-width="15" stroke-linecap="round"/>
+  <path d="M480 396H986" stroke="#e8ad21" stroke-width="15" stroke-linecap="round"/>
+  <path d="M480 543H986" stroke="#1b222b" stroke-width="15" stroke-linecap="round"/>
+  <rect x="75" y="730" width="1250" height="39" rx="10" fill="#e3ecf4"/>
+  <text x="700" y="757" text-anchor="middle" class="note">Orden físico de pines variable: sigue las etiquetas impresas, nunca la izquierda/derecha del dibujo.</text>
+</svg>

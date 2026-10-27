@@ -176,7 +176,28 @@ def _seed_admin(SessionLocal):
         db.close()
 
 
+@app.on_event("startup")
+async def startup_mqtt():
+    # Puente MQTT opcional: solo si MQTT_BROKER_URL está definida (CS5055).
+    from app.services.mqtt_bridge import start_bridge
+    await start_bridge()
+
+
+@app.on_event("shutdown")
+def shutdown_mqtt():
+    from app.services.mqtt_bridge import stop_bridge
+    stop_bridge()
+
+
 @app.get("/health")
 def health_check():
-    from app.services.predictive_service import active_engine
-    return {"status": "ok", "engine": active_engine()}
+    from app.services.predictive_service import active_engine, controller_mode
+    from app.services.mqtt_bridge import status_for_health
+    from app.services.node_metrics import power_model
+    # engine = ML bundle loaded or not (legacy); controller_mode = who actually
+    # drives the fan (heuristic) and whether ML runs in shadow (CS5055, additive).
+    # mqtt = disabled | connected | disconnected; ingest = http | mqtt+http.
+    # power_model (aditivo): parámetros nominales del modelo de potencia del nodo
+    # (fuente única: el frontend no duplica constantes).
+    return {"status": "ok", "engine": active_engine(), **controller_mode(), **status_for_health(),
+            "power_model": power_model()}

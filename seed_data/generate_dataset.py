@@ -60,6 +60,7 @@ from app.services.occupancy_service import (  # noqa: E402
 from app.services.predictive_service import (  # noqa: E402
     FEEDBACK_WEIGHT,
     THERMAL_LOAD_PER_PERSON,
+    _decide,
 )
 from app.services.climate_service import outdoor_temp as outdoor_temp_c  # noqa: E402
 
@@ -175,6 +176,9 @@ def synth_reading(room_id: str, people: int, ts: datetime, expected: int) -> dic
     thermal = round(effective * THERMAL_LOAD_PER_PERSON, 3)
     target_adj = round(ROOM_TARGET[room_id] - thermal, 2)
     ac_on = temp > target_adj
+    # CS5055: same decision law as the live heuristic (state + fan command + reason).
+    # ML shadow fields are left out on purpose: the seed never ran the model.
+    dec = _decide(temp, ROOM_TARGET[room_id], thermal, expected, actual, "Heurística")
     cognitive = {
         "ac_status": "ON" if ac_on else "STANDBY",
         "cooling_mode": "PRE-COOLING" if ac_on else None,
@@ -185,6 +189,13 @@ def synth_reading(room_id: str, people: int, ts: datetime, expected: int) -> dic
         "actual_occupancy": actual,
         "effective_occupancy": round(effective, 2),
         "occupancy_gap": occupancy_gap(expected, actual),
+        "action": dec["action"],
+        "fan_pwm": dec["fan_pwm"],
+        "active_controller": "heuristic",
+        "heuristic_action": dec["action"],
+        "heuristic_reason": dec["reason"],
+        "heuristic_target": dec["target"],
+        "heuristic_fan_pwm": dec["fan_pwm"],
     }
     return {
         "sensor_id": sensor_id(room_id),
@@ -194,6 +205,9 @@ def synth_reading(room_id: str, people: int, ts: datetime, expected: int) -> dic
         "co_ppm": co_ppm,
         "outdoor_temp": outdoor,
         "is_simulated": False,
+        # Synthetic history, NOT hardware: the dashboard labels it "Simulado".
+        # is_simulated stays False so /emergencies' 15 s purge never deletes it.
+        "data_origin": "seed",
         "timestamp": ts.strftime("%Y-%m-%dT%H:%M:%S.%f"),
         "cognitive_action": cognitive,
     }

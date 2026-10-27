@@ -109,13 +109,56 @@ def active_engine() -> str:
     return "ml" if _model is not None else "heuristic"
 
 
+def ml_loaded() -> bool:
+    """True when a trained bundle is in memory (it may still run only in shadow)."""
+    return _model is not None
+
+
+def controller_mode() -> dict:
+    """Describe who drives the actuator under the 'auto' policy (for /health and UI)."""
+    from app.config import ML_SHADOW_MODE
+    return {
+        "active_controller": "heuristic" if (ML_SHADOW_MODE or _model is None) else "ml",
+        "ml_shadow": bool(ML_SHADOW_MODE),
+        "ml_loaded": _model is not None,
+    }
+
+
+# ── Fan command (heuristic → ccs/<room>/cmd.fan_pwm) ─────────────────────────
+# Proportional law on the error above the adjusted target, with a floor so the
+# DC fan actually spins (below ~40 % many 12 V fans stall). [CONFIRMAR con firmware]
+FAN_MIN_PWM = 40.0
+FAN_GAIN_PWM_PER_C = 40.0
+
+
+def _decide(current_temp: float, target_temp: float, thermal_load: float,
+            expected_people: float, actual_people: float | None, engine_label: str) -> dict:
+    """Turn a thermal-load estimate into a decision state + fan command + reason."""
+    adjusted = round(target_temp - thermal_load, 2)
+    error = current_temp - adjusted
+    if error > 0:
+        # PRE-COOLING = a class is planned (feed-forward) but CO2 says the room is
+        # still empty: anticipatory ventilation. Otherwise the room is occupied/hot -> ON.
+        pre = expected_people > 0 and actual_people is not None and actual_people < 1
+        state = "PRE-COOLING" if pre else "ON"
+        pwm = round(min(100.0, max(FAN_MIN_PWM, FAN_MIN_PWM + FAN_GAIN_PWM_PER_C * error)), 1)
+        why = (
+            f"{engine_label}: T {current_temp:.1f} °C > objetivo ajustado {adjusted:.1f} °C "
+            f"(carga {thermal_load:.2f} °C)"
+            + (" · reserva próxima con aula vacía" if pre else "")
+        )
+        return {"ac_status": "ON", "action": state, "target": adjusted, "fan_pwm": pwm, "reason": why}
+    why = f"{engine_label}: T {current_temp:.1f} °C ≤ objetivo ajustado {adjusted:.1f} °C"
+    return {"ac_status": "STANDBY", "action": "STANDBY", "target": adjusted, "fan_pwm": 0.0, "reason": why}
+
+
 async def calculate_cooling_demand(
     current_temp: float,
     room_context: dict,
     reading_timestamp: datetime,
     co2_ppm: float | None = None,
 ) -> dict:
-    """Compute the cognitive AC action for an incoming sensor reading.
+    """Compute the cognitive action for an incoming sensor reading.
 
     Args:
         current_temp: Measured temperature in °C from the sensor.
@@ -128,11 +171,15 @@ async def calculate_cooling_demand(
                  the feedback correction. None → feed-forward on expected only.
 
     Returns:
-        Dict with keys: ac_status ('ON' | 'STANDBY'), cooling_mode, target,
-        thermal_load_offset, model ('ml' | 'heuristic' | 'none'), and the
-        occupancy telemetry: expected_occupancy, actual_occupancy,
-        effective_occupancy, occupancy_gap.
+        Dict with keys: ac_status ('ON' | 'STANDBY', legacy alias), cooling_mode,
+        target, thermal_load_offset, model ('ml' | 'heuristic' | 'manual' | 'none'),
+        the occupancy telemetry (expected/actual/effective_occupancy, occupancy_gap)
+        and — CS5055, additive — action (ON | PRE-COOLING | STANDBY), fan_pwm,
+        active_controller, heuristic_action/_reason/_target/_fan_pwm and the ML
+        shadow counterparts ml_action/_reason/_target/_fan_pwm (None when no model).
     """
+    from app.config import ML_SHADOW_MODE
+
     raw_expected = (room_context or {}).get("expected_people")
     expected_people = raw_expected or 0
     target_temp = (room_context or {}).get("target_temp")
@@ -140,7 +187,11 @@ async def calculate_cooling_demand(
     max_capacity = (room_context or {}).get("max_capacity")
 
     if not room_context or target_temp is None:
-        return {"ac_status": "STANDBY", "cooling_mode": None, "target": target_temp, "model": "none"}
+        return {
+            "ac_status": "STANDBY", "cooling_mode": None, "target": target_temp, "model": "none",
+            "action": "STANDBY", "active_controller": "none",
+            "heuristic_reason": "Sin aula/objetivo registrado: sin decisión cognitiva",
+        }
 
     # Feedback signal: infer realized occupancy from CO2 (None when no CO2 channel).
     actual_people = estimate_actual_occupancy(co2_ppm, max_capacity)
@@ -161,17 +212,12 @@ async def calculate_cooling_demand(
     ts = to_local(reading_timestamp)
     hour = ts.hour
 
-    # Per-room policy decides the engine:
-    #   manual    → no prediction, hold the configured target (zero offset)
-    #   heuristic → force the heuristic formula regardless of loaded ML model
-    #   auto      → ML model when loaded, else heuristic fallback
-    if policy == "manual":
-        thermal_load = 0.0
-        model_used = "manual"
-    elif policy == "heuristic" or _model is None:
-        thermal_load = effective_people * THERMAL_LOAD_PER_PERSON
-        model_used = "heuristic"
-    else:
+    # Heuristic estimate — always computed (it is the ACTIVE controller per spec).
+    heuristic_load = round(effective_people * THERMAL_LOAD_PER_PERSON, 3)
+
+    # ML estimate — computed whenever a bundle is loaded (shadow or active).
+    ml_load: float | None = None
+    if _model is not None:
         # actual_people may be None (no CO2) — fall back to expected for that slot
         actual_feature = actual_people if actual_people is not None else expected_people
         # Physical room metadata (Tier 3) — floor, volume_m3, ac_btu.
@@ -193,16 +239,27 @@ async def calculate_cooling_demand(
         try:
             row = [float(feat_values[f]) for f in _features]
         except KeyError as exc:
-            logger.error("Unknown model feature %s — heuristic fallback for this reading.", exc)
-            thermal_load = effective_people * THERMAL_LOAD_PER_PERSON
-            model_used = "heuristic"
+            logger.error("Unknown model feature %s — ML shadow unavailable for this reading.", exc)
         else:
-            features = np.array([row], dtype=float)
-            thermal_load = float(max(0.0, _model.predict(features)[0]))
-            model_used = "ml"
+            try:
+                features = np.array([row], dtype=float)
+                ml_load = round(float(max(0.0, _model.predict(features)[0])), 3)
+            except Exception as exc:  # a broken bundle must never stop the heuristic
+                logger.error("ML predict failed (%s) — ML shadow unavailable for this reading.", exc)
 
-    thermal_load = round(thermal_load, 3)
-    adjusted_target = round(target_temp - thermal_load, 2)
+    # Per-room policy decides the ACTIVE engine:
+    #   manual    → no prediction, hold the configured target (zero offset)
+    #   heuristic → heuristic formula
+    #   auto      → heuristic (ML in shadow) when ML_SHADOW_MODE, else ML when loaded
+    if policy == "manual":
+        thermal_load = 0.0
+        model_used = "manual"
+    elif policy == "heuristic" or ml_load is None or ML_SHADOW_MODE:
+        thermal_load = heuristic_load
+        model_used = "heuristic"
+    else:
+        thermal_load = ml_load
+        model_used = "ml"
 
     occupancy_telemetry = {
         "expected_occupancy": expected_people,
@@ -211,20 +268,35 @@ async def calculate_cooling_demand(
         "occupancy_gap": occupancy_gap(expected_people, actual_people),
     }
 
-    if current_temp > adjusted_target:
-        return {
-            "ac_status": "ON",
-            "cooling_mode": "PRE-COOLING",
-            "target": adjusted_target,
-            "thermal_load_offset": thermal_load,
-            "model": model_used,
-            **occupancy_telemetry,
-        }
+    heur = _decide(current_temp, target_temp, heuristic_load, expected_people, actual_people, "Heurística")
+    ml = (_decide(current_temp, target_temp, ml_load, expected_people, actual_people, "ML (sombra)")
+          if ml_load is not None else None)
+    if model_used == "heuristic":
+        active = heur
+    elif model_used == "ml" and ml is not None:
+        active = ml
+    else:
+        active = _decide(current_temp, target_temp, 0.0, expected_people, actual_people, "Manual")
+
     return {
-        "ac_status": "STANDBY",
-        "cooling_mode": None,
-        "target": adjusted_target,
-        "thermal_load_offset": thermal_load,
+        # Legacy contract (unchanged semantics).
+        "ac_status": active["ac_status"],
+        # DEPRECATED (legacy): "PRE-COOLING" para todo ON; usar `action`.
+        "cooling_mode": "PRE-COOLING" if active["ac_status"] == "ON" else None,
+        "target": active["target"],
+        "thermal_load_offset": round(thermal_load, 3),
         "model": model_used,
         **occupancy_telemetry,
+        # CS5055 additive fields.
+        "action": active["action"],
+        "fan_pwm": active["fan_pwm"],
+        "active_controller": model_used,
+        "heuristic_action": heur["action"],
+        "heuristic_reason": heur["reason"],
+        "heuristic_target": heur["target"],
+        "heuristic_fan_pwm": heur["fan_pwm"],
+        "ml_action": ml["action"] if ml else None,
+        "ml_reason": ml["reason"] if ml else ("Modelo ML no cargado" if _model is None else "Predicción ML no disponible"),
+        "ml_target": ml["target"] if ml else None,
+        "ml_fan_pwm": ml["fan_pwm"] if ml else None,
     }

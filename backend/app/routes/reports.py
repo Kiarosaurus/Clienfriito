@@ -1,215 +1,197 @@
 """
-ROI Report endpoint — Energy savings calculator.
+Reports — consumo del propio nodo + indicadores de funcionamiento (CS5055).
 
-Methodology:
-  - Fetches last 7 days of sensor readings from MongoDB.
-  - Groups readings by calendar date.
-  - Estimates the time interval between readings from the actual data span.
-  - Traditional consumption: assumes AC ON for 100% of operational time.
-  - Cognitive consumption: counts only readings where cognitive_action.ac_status == 'ON'.
-  - Savings = (traditional_kwh − cognitive_kwh) expressed in kWh and USD.
-  - If fewer than 2 real readings exist, returns a clearly-flagged synthetic simulation
-    based on standard classroom assumptions (8 h/day, 60% standby rate).
+GET /reports/roi (ruta conservada; vista "Consumo del nodo"):
+  - Lecturas de los últimos 7 días (opcional ?room_id=).
+  - Potencia por lectura = rama actuador (INA219 `power_w`, medido; si falta,
+    ventilador nominal × PWM) + electrónica nominal / η buck ("estimado").
+    Con INA219_SCOPE=node el shunt mide el total.
+  - kWh y costo por día / mes / año = potencia media ponderada por tiempo × 24 h
+    (el nodo queda energizado todo el día); con varias aulas, promedio por nodo.
+    Tarifa y moneda configurables (app.config).
+  - ?origin=all|node|simulado|desconocido filtra por procedencia declarada.
+  - Comparación permitida: energía heurística vs ML en sombra (misma ventana).
+  - Sin baseline de aire acondicionado: la spec lo prohíbe (docs/hardware-spec.md).
+  - Siempre incluye una "cota máxima" (ventilador al 100 % las 24 h) calculada
+    con los parámetros nominales, para el caso sin lecturas.
 
-Access: admin role only (RBAC enforced inside the endpoint).
+GET /reports/node-metrics?room_id=&hours=24&origin=all:
+  - Indicadores derivados: disponibilidad (huecos > 3× periodo nominal entre
+    lecturas consecutivas, informe OE2; + caídas LWT persistidas), % lecturas válidas,
+    latencia p50/p95 vs 3 s, % en banda de confort, coincidencia heurística/ML,
+    error de ocupación CO2 vs cámara, alarmas CO, ciclos del ventilador, energía.
+
+Access: /roi admin; /node-metrics cualquier usuario autenticado.
 """
 import logging
-from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
-from app.core.timeutils import local_now, to_local
+from app.core.timeutils import to_local
 from app.database import get_db
+from app.database_sql import get_db_sql
 from app.dependencies import get_current_user
-from app.models.admin import User
+from app.models.admin import Room, SensorDevice, User
+from app.services.node_metrics import (
+    compute_node_energy, compute_node_metrics, filter_by_origin, origin_counts,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# ── Constants ─────────────────────────────────────────────────────────────────
-AC_POWER_KW        = 2.5    # assumed power draw of one AC unit (kW)
-COST_PER_KWH       = 0.15   # energy tariff (USD per kWh)
-DEFAULT_INTERVAL_H = 5 / 60 # fallback interval when span cannot be estimated
+ROI_WINDOW_DAYS = 7
+_PROJECTION = {"_id": 0}
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _parse_ts(ts: str) -> datetime | None:
-    """Parse ISO timestamp string — strips tzinfo for uniform naive comparison.
-
-    Returns None for malformed values so the caller can DISCARD the document;
-    silently mapping garbage to "now" would inflate today's bucket.
-    """
-    ts = ts.replace("Z", "+00:00")
-    try:
-        dt = datetime.fromisoformat(ts)
-    except ValueError:
+async def _sensor_ids_for_room(db_sql: Session, room_id: Optional[str]) -> Optional[list[str]]:
+    """None → todas las aulas; [] → aula sin nodos."""
+    if room_id is None:
         return None
-    return dt.replace(tzinfo=None) if dt.tzinfo else dt
+    return await run_in_threadpool(
+        lambda: [d.id for d in db_sql.query(SensorDevice).filter(SensorDevice.room_id == room_id).all()]
+    )
 
 
-def _simulate_roi() -> dict:
-    """Return synthetic ROI projection for demo / early-deployment environments.
+async def _configured_targets(db_sql: Session, sensor_ids: Optional[list[str]]) -> dict[str, float]:
+    """{sensor_id: objetivo configurado del aula} — referencia de la banda de confort."""
+    def _load() -> dict[str, float]:
+        q = db_sql.query(SensorDevice)
+        if sensor_ids is not None:
+            q = q.filter(SensorDevice.id.in_(sensor_ids))
+        devices = q.all()
+        room_ids = list({d.room_id for d in devices if d.room_id})
+        if not room_ids:
+            return {}
+        rooms = {r.id: r.target_temp for r in db_sql.query(Room).filter(Room.id.in_(room_ids)).all()}
+        return {d.id: rooms[d.room_id] for d in devices if d.room_id in rooms}
+    try:
+        return await run_in_threadpool(_load)
+    except Exception as exc:  # SQL caído → sin banda (el KPI queda "sin dato")
+        logger.warning("No se pudieron cargar objetivos configurados: %s", exc)
+        return {}
 
-    Assumes standard classroom profile: 8 operational hours per day, with the
-    cognitive system keeping the AC in STANDBY 60% of that time.
-    Response includes 'simulated: true' so the frontend renders the amber banner.
-    """
-    today = local_now().date()
-    trend_data = []
-    total_traditional = total_cognitive = 0.0
 
-    for i in range(6, -1, -1):
-        day = today - timedelta(days=i)
-        operational_h = 8.0
-        standby_h     = operational_h * 0.60   # cognitive keeps 60% in standby
-        on_h          = operational_h - standby_h
+OriginParam = Query("all", pattern="^(all|node|simulado|desconocido)$",
+                    description="Procedencia: all | node (marca explícita) | simulado | desconocido")
 
-        trad = operational_h * AC_POWER_KW
-        cog  = on_h          * AC_POWER_KW
-        sav  = standby_h     * AC_POWER_KW
 
-        total_traditional += trad
-        total_cognitive   += cog
-
-        trend_data.append({
-            "date":             str(day),
-            "traditional_kwh":  round(trad, 3),
-            "cognitive_kwh":    round(cog, 3),
-            "savings_kwh":      round(sav, 3),
-        })
-
-    energy_saved = total_traditional - total_cognitive
-    return {
-        "total_hours_analyzed":   56.0,
-        "total_readings":         0,
-        "traditional_kwh":        round(total_traditional, 3),
-        "cognitive_kwh":          round(total_cognitive, 3),
-        "energy_saved_kwh":       round(energy_saved, 3),
-        "standby_hours":          round(energy_saved / AC_POWER_KW, 2),
-        "total_savings_currency": round(energy_saved * COST_PER_KWH, 2),
-        "currency":               "USD",
-        "assumptions":            {"ac_power_kw": AC_POWER_KW, "cost_per_kwh": COST_PER_KWH,
-                                   "estimated_interval_minutes": 5.0},
-        "trend_data":             trend_data,
-        "simulated":              True,
+async def _fetch_window(db, sensor_ids: Optional[list[str]], since: datetime, until: datetime,
+                        limit: int = 50_000) -> list[dict]:
+    mongo_filter: dict = {
+        "timestamp": {
+            "$gte": since.strftime("%Y-%m-%dT%H:%M:%S.%f"),
+            "$lte": until.strftime("%Y-%m-%dT%H:%M:%S.%f"),
+        }
     }
+    if sensor_ids is not None:
+        mongo_filter["sensor_id"] = {"$in": sensor_ids}
+    cursor = db["sensor_readings"].find(mongo_filter, _PROJECTION).sort("timestamp", 1)
+    return await cursor.to_list(length=limit)
 
 
-# ── Endpoint ──────────────────────────────────────────────────────────────────
+# ── Consumo del nodo ──────────────────────────────────────────────────────────
 
 @router.get("/roi")
 async def get_roi(
+    room_id: Optional[str] = None,
+    origin: str = OriginParam,
     db: AsyncIOMotorDatabase = Depends(get_db),
+    db_sql: Session = Depends(get_db_sql),
     current_user: User = Depends(get_current_user),
 ):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin role required.")
 
-    # ── Fetch last 7 days from MongoDB ────────────────────────────────────────
-    # Upper bound matters: the seeded dataset extends past today, and without it
-    # future-dated readings would inflate the "last 7 days" report.
+    # Upper bound matters: the seeded dataset may extend past today.
     now_utc = datetime.utcnow()
-    since_iso = (now_utc - timedelta(days=7)).isoformat()
-    now_iso = now_utc.isoformat()
+    since = now_utc - timedelta(days=ROI_WINDOW_DAYS)
+    sensor_ids = await _sensor_ids_for_room(db_sql, room_id)
+    all_docs = [] if sensor_ids == [] else await _fetch_window(db, sensor_ids, since, now_utc)
+    docs = filter_by_origin(all_docs, origin)
 
-    cursor = (
-        db["sensor_readings"]
-        .find(
-            {"timestamp": {"$gte": since_iso, "$lte": now_iso}},
-            {"timestamp": 1, "cognitive_action": 1, "_id": 0},
-        )
-        .sort("timestamp", 1)
+    result = compute_node_energy(
+        docs, ROI_WINDOW_DAYS, day_key=lambda t: to_local(t).date().isoformat()
     )
-    docs = await cursor.to_list(length=50_000)
-
-    # Discard documents whose timestamp cannot be parsed (see _parse_ts).
-    valid_docs = [d for d in docs if _parse_ts(d.get("timestamp", "")) is not None]
-    if len(valid_docs) != len(docs):
-        logger.warning("ROI: discarded %d readings with malformed timestamps.", len(docs) - len(valid_docs))
-    docs = valid_docs
-
-    if len(docs) < 2:
-        logger.info("ROI: insufficient data (%d readings) — returning simulation.", len(docs))
-        return _simulate_roi()
-
-    # ── Estimate per-reading interval ─────────────────────────────────────────
-    ts_first  = _parse_ts(docs[0]["timestamp"])
-    ts_last   = _parse_ts(docs[-1]["timestamp"])
-    # Both are non-None here (docs were filtered above); guard for the type checker.
-    span_h    = (
-        max((ts_last - ts_first).total_seconds() / 3600, 0.0)
-        if ts_first is not None and ts_last is not None else 0.0
-    )
-    n         = len(docs)
-    interval_h = (span_h / (n - 1)) if span_h > 0 else DEFAULT_INTERVAL_H
-
-    # ── Group by LOCAL calendar date ──────────────────────────────────────────
-    # Timestamps are stored naive UTC; slicing the raw string would split days
-    # at 19:00 Lima. Shift to local wall-clock before taking the date.
-    by_day: dict[str, list] = defaultdict(list)
-    for doc in docs:
-        ts = _parse_ts(doc.get("timestamp", ""))
-        if ts is None:  # already filtered above; guard for the type checker
-            continue
-        by_day[to_local(ts).date().isoformat()].append(doc)
-
-    # ── Compute per-day and aggregate totals ──────────────────────────────────
-    trend_data: list[dict] = []
-    total_traditional = total_cognitive = total_standby_h = 0.0
-
-    for date in sorted(by_day.keys()):
-        day_docs  = by_day[date]
-        n_day     = len(day_docs)
-
-        standby_n = sum(
-            1 for d in day_docs
-            if (d.get("cognitive_action") or {}).get("ac_status") == "STANDBY"
-        )
-        on_n      = sum(
-            1 for d in day_docs
-            if (d.get("cognitive_action") or {}).get("ac_status") == "ON"
-        )
-
-        day_trad  = n_day    * interval_h * AC_POWER_KW
-        day_cog   = on_n     * interval_h * AC_POWER_KW
-        day_sav   = standby_n * interval_h * AC_POWER_KW
-        day_std_h = standby_n * interval_h
-
-        total_traditional += day_trad
-        total_cognitive   += day_cog
-        total_standby_h   += day_std_h
-
-        trend_data.append({
-            "date":             date,
-            "traditional_kwh":  round(day_trad, 3),
-            "cognitive_kwh":    round(day_cog, 3),
-            "savings_kwh":      round(day_sav, 3),
-        })
-
-    energy_saved = total_traditional - total_cognitive
-
+    result["room_id"] = room_id
+    result["origin_filter"] = origin
+    result["origin_counts_all"] = origin_counts(all_docs)
+    # Sin lecturas → solo la cota máxima nominal; el frontend muestra el aviso.
+    result["simulated"] = result["total_readings"] == 0
     logger.info(
-        "ROI computed: %d readings, %.2f h span, %.3f kWh saved, $%.2f",
-        n, span_h, energy_saved, energy_saved * COST_PER_KWH,
+        "Node consumption: room=%s readings=%d source=%s",
+        room_id, result["total_readings"], result["power_source"],
     )
+    return result
 
-    return {
-        "total_hours_analyzed":   round(span_h, 2),
-        "total_readings":         n,
-        "traditional_kwh":        round(total_traditional, 3),
-        "cognitive_kwh":          round(total_cognitive, 3),
-        "energy_saved_kwh":       round(energy_saved, 3),
-        "standby_hours":          round(total_standby_h, 2),
-        "total_savings_currency": round(energy_saved * COST_PER_KWH, 2),
-        "currency":               "USD",
-        "assumptions": {
-            "ac_power_kw":                  AC_POWER_KW,
-            "cost_per_kwh":                 COST_PER_KWH,
-            "estimated_interval_minutes":   round(interval_h * 60, 1),
-        },
-        "trend_data":  trend_data,
-        "simulated":   False,
-    }
+
+# ── Indicadores de funcionamiento ─────────────────────────────────────────────
+
+async def _rooms_for_sensors(db_sql: Session, sensor_ids: list[str]) -> list[str]:
+    def _load() -> list[str]:
+        q = db_sql.query(SensorDevice).filter(SensorDevice.id.in_(sensor_ids))
+        return sorted({d.room_id for d in q.all() if d.room_id})
+    try:
+        return await run_in_threadpool(_load)
+    except Exception as exc:
+        logger.warning("No se pudo resolver el aula de los nodos: %s", exc)
+        return []
+
+
+async def _fetch_status_events(db, room_ids: Optional[list[str]], since: datetime,
+                               until: datetime) -> list[dict]:
+    """Transiciones LWT persistidas por el puente MQTT (colección node_status_events).
+
+    Sin puente o sin colección → []: la disponibilidad queda solo por huecos.
+    """
+    flt: dict = {"ts": {"$gte": since.strftime("%Y-%m-%dT%H:%M:%S.%f"),
+                        "$lte": until.strftime("%Y-%m-%dT%H:%M:%S.%f")}}
+    if room_ids is not None:
+        if not room_ids:
+            return []
+        flt["room_id"] = {"$in": room_ids}
+    try:
+        cursor = db["node_status_events"].find(flt, _PROJECTION).sort("ts", 1)
+        return await cursor.to_list(length=5_000)
+    except Exception as exc:  # colección inexistente / Mongo caído → sin LWT
+        logger.warning("No se pudieron leer eventos LWT: %s", exc)
+        return []
+
+
+@router.get("/node-metrics")
+async def get_node_metrics(
+    room_id: Optional[str] = None,
+    sensor_id: Optional[str] = None,
+    hours: int = Query(24, ge=1, le=24 * 30),
+    origin: str = OriginParam,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    db_sql: Session = Depends(get_db_sql),
+    current_user: User = Depends(get_current_user),
+):
+    now_utc = datetime.utcnow()
+    since = now_utc - timedelta(hours=hours)
+    if sensor_id is not None:
+        sensor_ids: Optional[list[str]] = [sensor_id]
+    else:
+        sensor_ids = await _sensor_ids_for_room(db_sql, room_id)
+    all_docs = [] if sensor_ids == [] else await _fetch_window(db, sensor_ids, since, now_utc, limit=20_000)
+    docs = filter_by_origin(all_docs, origin)
+    targets = await _configured_targets(db_sql, sensor_ids)
+    if room_id is not None:
+        room_ids: Optional[list[str]] = [room_id]
+    elif sensor_ids is not None:
+        room_ids = await _rooms_for_sensors(db_sql, sensor_ids)
+    else:
+        room_ids = None
+    events = await _fetch_status_events(db, room_ids, since, now_utc)
+    metrics = compute_node_metrics(docs, window_hours=hours, configured_targets=targets,
+                                   status_events=events, window_end=now_utc)
+    metrics["room_id"] = room_id
+    metrics["origin_filter"] = origin
+    metrics["origin_counts_all"] = origin_counts(all_docs)
+    metrics["sensor_ids"] = sensor_ids
+    return metrics

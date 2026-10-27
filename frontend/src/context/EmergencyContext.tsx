@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
-import { useLocation } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import api from '../api/client'
 
@@ -7,9 +6,14 @@ export interface EmergencyEntry {
   room_id: string
   room_name: string
   sensor_id: string
-  co_ppm: number
+  co_ppm: number | null
   is_simulated: boolean
   timestamp: string
+  // CS5055 (opcionales): alarma local del nodo (buzzer/LED, ventilador 100 %)
+  // frente a detección solo en servidor por co_ppm > 50.
+  alarm_active?: boolean | null
+  fan_pwm?: number | null
+  source?: 'local' | 'servidor' | null
 }
 
 interface EmergencyContextType {
@@ -38,7 +42,6 @@ export function useEmergency() {
 
 export function EmergencyProvider({ children }: { children: React.ReactNode }) {
   const { user, token } = useAuth()
-  const { pathname }    = useLocation()
   const [realEmergencies, setRealEmergencies]         = useState<EmergencyEntry[]>([])
   const [simulatedEmergencies, setSimulatedEmergencies] = useState<EmergencyEntry[]>([])
   const [isPopupDismissed, setIsPopupDismissed]       = useState(false)
@@ -46,18 +49,10 @@ export function EmergencyProvider({ children }: { children: React.ReactNode }) {
   // Key = roomId:isSimulated — detects new entries to reopen popup
   const prevKeysRef = useRef<Set<string>>(new Set())
 
-  // Immediately clear stale state when navigating away from the dashboard.
-  // The next polling cycle (≤5 s) will repopulate if a real emergency persists.
-  useEffect(() => {
-    if (pathname !== '/') {
-      setRealEmergencies([])
-      setSimulatedEmergencies([])
-      prevKeysRef.current = new Set()
-      setIsPopupDismissed(false)
-    }
-  }, [pathname])
-
-  const canPoll = user?.role === 'admin' || user?.role === 'collaborator'
+  // A CO alarm is safety information: every authenticated role polls it (guest
+  // included), and the state is NOT wiped on route changes — a real alarm must
+  // stay visible wherever the user navigates. Layout decides what to show where.
+  const canPoll = !!user
 
   const poll = useCallback(async () => {
     if (!canPoll || !token) return

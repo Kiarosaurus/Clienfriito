@@ -17,6 +17,7 @@ from app.models.admin import SensorDevice, Reservation, User, Room
 # LÍNEA NUEVA — antes este import no existía. Trae el modelo de error compartido.
 from app.models.common import ErrorDetail
 from app.services.data_service import process_reading
+from app.services.node_metrics import reading_power
 from app.database import get_db
 from app.database_sql import get_db_sql
 from app.dependencies import get_current_user
@@ -45,6 +46,32 @@ class CognitiveActionOut(BaseModel):
     actual_occupancy: Optional[float] = None
     effective_occupancy: Optional[float] = None
     occupancy_gap: Optional[float] = None
+    # CS5055 (aditivo): estado de decisión, comando del ventilador y comparación
+    # heurística (activa) vs ML (sombra). ac_status se mantiene como alias.
+    action: Optional[str] = None
+    fan_pwm: Optional[float] = None
+    active_controller: Optional[str] = None
+    heuristic_action: Optional[str] = None
+    heuristic_reason: Optional[str] = None
+    heuristic_target: Optional[float] = None
+    heuristic_fan_pwm: Optional[float] = None
+    ml_action: Optional[str] = None
+    ml_reason: Optional[str] = None
+    ml_target: Optional[float] = None
+    ml_fan_pwm: Optional[float] = None
+
+
+class PowerBreakdownOut(BaseModel):
+    total_w: Optional[float] = None
+    actuator_w: Optional[float] = None
+    logic_w: Optional[float] = None
+    actuator_measured: bool = False
+    total_measured: bool = False
+    actuator_basis: Optional[str] = None
+    source: Optional[str] = None
+    ina219_scope: Optional[str] = None
+    current_ma: Optional[float] = None
+    bus_voltage_v: Optional[float] = None
 
 
 class SensorReadingOut(BaseModel):
@@ -52,20 +79,43 @@ class SensorReadingOut(BaseModel):
     temperature: float
     humidity: float
     co2_ppm: Optional[float] = None
-    co_ppm: float = 0.0
+    # None = el nodo no envió lectura MQ-7 (no se convierte en "0 ppm").
+    co_ppm: Optional[float] = None
     camera_occupancy: Optional[int] = None
     is_simulated: bool = False
     timestamp: str
     cognitive_action: Optional[CognitiveActionOut] = None
+    # CS5055 (aditivo): telemetría del nodo ESP32 — None si el nodo no la envía.
+    power_w: Optional[float] = None
+    current_ma: Optional[float] = None
+    bus_voltage_v: Optional[float] = None
+    fan_pwm: Optional[float] = None
+    heater_on: Optional[bool] = None
+    alarm_active: Optional[bool] = None
+    node_online: Optional[bool] = None
+    rssi_dbm: Optional[float] = None
+    latency_ms: Optional[float] = None
+    uptime_s: Optional[float] = None
+    data_origin: Optional[str] = None
+    anomaly_detected: Optional[bool] = None
+    # CS5055 (aditivo): desglose de potencia calculado por el backend con la misma
+    # regla que /reports/roi (rama actuador + electrónica nominal). El frontend lo
+    # muestra tal cual; no duplica el modelo de potencia.
+    power: Optional[PowerBreakdownOut] = None
 
 
 class EmergencyEntryOut(BaseModel):
     room_id: str
     room_name: str
     sensor_id: str
-    co_ppm: float
+    co_ppm: Optional[float] = None
     timestamp: Optional[str] = None
     is_simulated: bool
+    # CS5055 (aditivo): alarma local del nodo (buzzer/LED, ventilador 100 %)
+    # vs detección solo en servidor por co_ppm > 50.
+    alarm_active: Optional[bool] = None
+    fan_pwm: Optional[float] = None
+    source: Optional[str] = None
 
 
 class EmergenciesOut(BaseModel):
@@ -121,6 +171,7 @@ async def list_readings(
     docs = await cursor.to_list(length=limit)
     for d in docs:
         d.pop("_id", None)
+        d["power"] = reading_power(d)
     return docs
 
 
@@ -176,9 +227,11 @@ async def get_co_emergencies(
       4. room_id does not exist in the rooms table
 
     Only real if is_simulated is strictly False AND the room resolves to a known SQL room.
+
+    CS5055: readable by EVERY authenticated role (guest included) — a CO alarm is
+    safety information, not an admin feature. Also returns readings whose node
+    reported alarm_active=True (local buzzer/LED) even if co_ppm is missing.
     """
-    if current_user.role not in ("admin", "collaborator"):
-        raise HTTPException(status_code=403, detail="Admin or collaborator role required.")
 
     now = datetime.now(timezone.utc)
 
@@ -192,7 +245,10 @@ async def get_co_emergencies(
         print(f"Purging old simulation data...")
 
     cursor = db["sensor_readings"].find(
-        {"co_ppm": {"$gt": 50}, "timestamp": {"$gte": fifteen_sec_ago}}
+        {
+            "$or": [{"co_ppm": {"$gt": 50}}, {"alarm_active": True}],
+            "timestamp": {"$gte": fifteen_sec_ago},
+        }
     ).sort("co_ppm", -1)
 
     docs = await cursor.to_list(length=200)
@@ -241,8 +297,11 @@ async def get_co_emergencies(
             "room_id":    rid or sid,
             "room_name":  resolved_name or "Simulación",
             "sensor_id":  sid,
-            "co_ppm":     doc.get("co_ppm", 0),
+            "co_ppm":     doc.get("co_ppm"),   # None si la alarma local llegó sin lectura MQ-7
             "timestamp":  doc.get("timestamp"),
+            "alarm_active": doc.get("alarm_active"),
+            "fan_pwm":    doc.get("fan_pwm"),
+            "source":     "local" if doc.get("alarm_active") is True else "servidor",
         }
 
         if is_sim_flag or id_synthetic or room_unknown:

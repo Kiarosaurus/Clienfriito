@@ -2,63 +2,32 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Search, Building2, Users, Thermometer,
-  RefreshCw, AlertCircle, Zap, ZapOff, HelpCircle,
+  RefreshCw, AlertCircle, Fan,
 } from 'lucide-react'
 import api, { getApiErrorDetail } from '../api/client'
 import { EmptyState } from '../components/EmptyState'
+import type { StoredReading } from '../types'
+import { decisionOf, fanPwmOf, fmtNum, parseUtcMs, mqttTopic, nodeOnline, ago } from '../utils/node'
+import { DecisionBadge, NodeLinkBadge, OriginBadge, AlarmOverrideBadge, lwtFor } from '../components/NodeWidgets'
+import { useHealth, useNow, updatedAgo } from '../utils/live'
+
+// Refresco en vivo del estado de cada aula (FE-2-03).
+const STATUS_POLL_MS = 15_000
 
 interface Room {
-  id: number
+  // Room PKs are strings in PostgreSQL (e.g. "A403").
+  id: string
   name: string
   max_capacity: number
   target_temp: number
 }
 
 interface RoomStatus {
-  ac_status: string | null
-  temperature: number | null
+  last: StoredReading | null
   loading: boolean
 }
 
-type StatusMap = Record<number, RoomStatus>
-
-type AcStatus = 'ON' | 'STANDBY' | 'DISABLED' | null
-
-function AcBadge({ status, loading }: { status: AcStatus; loading: boolean }) {
-  if (loading) {
-    return (
-      <span className="flex items-center gap-1 text-xs text-slate-500">
-        <RefreshCw size={10} className="animate-spin" /> …
-      </span>
-    )
-  }
-  if (status === 'ON') {
-    return (
-      <span className="flex items-center gap-1 text-xs font-semibold text-blue-300 bg-blue-900/40 border border-blue-500/30 px-2 py-0.5 rounded-full">
-        <Zap size={10} /> Encendido
-      </span>
-    )
-  }
-  if (status === 'STANDBY') {
-    return (
-      <span className="flex items-center gap-1 text-xs text-slate-400 bg-slate-700/60 border border-slate-600 px-2 py-0.5 rounded-full">
-        <ZapOff size={10} /> En espera
-      </span>
-    )
-  }
-  if (status === 'DISABLED') {
-    return (
-      <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-900/30 border border-amber-500/30 px-2 py-0.5 rounded-full">
-        <ZapOff size={10} /> Deshabilitado
-      </span>
-    )
-  }
-  return (
-    <span className="flex items-center gap-1 text-xs text-slate-600 px-2 py-0.5 rounded-full">
-      <HelpCircle size={10} /> Sin datos
-    </span>
-  )
-}
+type StatusMap = Record<string, RoomStatus>
 
 export default function RoomSearch() {
   const navigate = useNavigate()
@@ -67,47 +36,50 @@ export default function RoomSearch() {
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null)
+  const now = useNow(5_000)
+  const { data: health } = useHealth()
 
   useEffect(() => {
     api.get<Room[]>('/admin/rooms')
       .then(res => {
         const data = res.data
         setRooms(data)
-
         // Seed loading placeholders
         const initial: StatusMap = {}
-        data.forEach(r => { initial[r.id] = { ac_status: null, temperature: null, loading: true } })
+        data.forEach(r => { initial[r.id] = { last: null, loading: true } })
         setStatuses(initial)
-
-        // Fetch last reading per room in parallel (non-blocking)
-        data.forEach(room => {
-          api.get<{ cognitive_action?: { ac_status?: string }; temperature?: number }[]>(
-            `/sensors/?room_id=${room.id}&limit=1`
-          )
-            .then(res => {
-              const last = res.data?.[0]
-              setStatuses(prev => ({
-                ...prev,
-                [room.id]: {
-                  ac_status: (last?.cognitive_action?.ac_status ?? null) as AcStatus,
-                  temperature: last?.temperature ?? null,
-                  loading: false,
-                },
-              }))
-            })
-            .catch(() => {
-              setStatuses(prev => ({
-                ...prev,
-                [room.id]: { ac_status: null, temperature: null, loading: false },
-              }))
-            })
-        })
       })
       .catch(err => {
         setError(getApiErrorDetail(err) ?? 'No se pudo cargar la lista de aulas.')
       })
       .finally(() => setLoading(false))
   }, [])
+
+  // Última lectura por aula, refrescada cada 15 s (el badge "En línea" cae a
+  // "Fuera de línea" por antigüedad aunque no lleguen lecturas nuevas).
+  useEffect(() => {
+    if (rooms.length === 0) return
+    let cancelled = false
+    const load = () => {
+      rooms.forEach(room => {
+        api.get<StoredReading[]>(`/sensors/?room_id=${encodeURIComponent(room.id)}&limit=1`)
+          .then(res => {
+            if (cancelled) return
+            const last = (res.data ?? []).find(d => parseUtcMs(d.timestamp) != null) ?? null
+            setStatuses(prev => ({ ...prev, [room.id]: { last, loading: false } }))
+            setLastUpdated(Date.now())
+          })
+          .catch(() => {
+            if (cancelled) return
+            setStatuses(prev => ({ ...prev, [room.id]: { last: prev[room.id]?.last ?? null, loading: false } }))
+          })
+      })
+    }
+    load()
+    const t = setInterval(load, STATUS_POLL_MS)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [rooms])
 
   const filtered = rooms.filter(r =>
     r.name.toLowerCase().includes(query.toLowerCase())
@@ -119,7 +91,7 @@ export default function RoomSearch() {
         <Building2 size={22} className="text-blue-400" />
         <div>
           <h1 className="text-xl font-bold text-white">Aulas</h1>
-          <p className="text-sm text-slate-400">Selecciona un aula para ver su dashboard cognitivo</p>
+          <p className="text-sm text-slate-400">Selecciona un aula para ver su dashboard cognitivo · <span className="text-slate-500">{updatedAgo(lastUpdated, now)}</span></p>
         </div>
       </div>
 
@@ -172,6 +144,9 @@ export default function RoomSearch() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filtered.map(room => {
           const st = statuses[room.id]
+          // Decisión vigente solo si el nodo está en línea; si no, se rotula como la última conocida (FE-3-07).
+          const link = nodeOnline(st?.last ?? null, now, { lwt: lwtFor(health, room.id) })
+          const current = link.online === true
           return (
             <button
               key={room.id}
@@ -183,14 +158,29 @@ export default function RoomSearch() {
                 <div className="w-10 h-10 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center group-hover:bg-blue-600/30 transition-colors">
                   <Building2 size={20} className="text-blue-400" />
                 </div>
-                <AcBadge
-                  status={st?.ac_status as AcStatus ?? null}
-                  loading={st?.loading ?? false}
-                />
+                {st?.loading
+                  ? <span className="flex items-center gap-1 text-xs text-slate-500"><RefreshCw size={10} className="animate-spin" /> …</span>
+                  : (
+                    <div className="flex flex-col items-end gap-1">
+                      {current || !st?.last
+                        ? <DecisionBadge state={st?.last ? decisionOf(st.last.cognitive_action) : null} />
+                        : (
+                          <span title="El nodo no está en línea: no hay decisión vigente" className="flex flex-col items-end gap-0.5 opacity-60">
+                            <DecisionBadge state={decisionOf(st.last.cognitive_action)} />
+                            <span className="text-[10px] text-slate-500">Última decisión ({ago(link.lastSeenMs, now)})</span>
+                          </span>
+                        )}
+                      {current && <AlarmOverrideBadge reading={st?.last} />}
+                    </div>
+                  )}
               </div>
 
               {/* Name */}
-              <h3 className="font-semibold text-slate-100 text-sm mb-3 truncate">{room.name}</h3>
+              <h3 className="font-semibold text-slate-100 text-sm mb-2 truncate">{room.name}</h3>
+              <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                {!st?.loading && <NodeLinkBadge reading={st?.last ?? null} now={now} roomId={room.id} />}
+                <OriginBadge reading={st?.last} compact />
+              </div>
 
               {/* Stats */}
               <div className="space-y-1.5">
@@ -201,19 +191,26 @@ export default function RoomSearch() {
                 <div className="flex items-center gap-2 text-xs text-slate-400">
                   <Thermometer size={12} />
                   <span>
-                    Target: <span className="text-blue-300 font-medium">{room.target_temp}°C</span>
-                    {st?.temperature != null && (
+                    Objetivo: <span className="text-blue-300 font-medium">{room.target_temp}°C</span>
+                    {st?.last?.temperature != null && (
                       <span className="ml-2 text-slate-500">
-                        · Actual: <span className={st.temperature > 40 ? 'text-red-400' : 'text-slate-300'}>{st.temperature.toFixed(1)}°C</span>
+                        · Actual: <span className="text-slate-300">{st.last.temperature.toFixed(1)}°C</span>
                       </span>
                     )}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <Fan size={12} />
+                  <span>
+                    {current ? 'Ventilador' : 'Ventilador (último)'}:{' '}
+                    <span className={`font-medium ${current ? 'text-slate-300' : 'text-slate-500'}`}>{fmtNum(fanPwmOf(st?.last, st?.last?.cognitive_action).value, ' %', 0)}</span>
                   </span>
                 </div>
               </div>
 
               {/* Footer */}
               <div className="mt-3 pt-3 border-t border-slate-700/50">
-                <span className="text-xs text-slate-500">ID {room.id} · Ver dashboard →</span>
+                <span className="text-xs text-slate-500" title="Topic MQTT previsto para el nodo del aula">Nodo <span className="font-mono">{mqttTopic(room.id)}</span> · Ver dashboard →</span>
               </div>
             </button>
           )

@@ -20,11 +20,11 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: '/',             label: 'Dashboard',    icon: <LayoutDashboard size={18} /> },
   { to: '/rooms',        label: 'Aulas',         icon: <Building2 size={18} /> },
-  { to: '/sensors',      label: 'Sensores',      icon: <Cpu size={18} />,          roles: ['admin'] },
+  { to: '/sensors',      label: 'Nodos ESP32',   icon: <Cpu size={18} />,          roles: ['admin'] },
   { to: '/reservations', label: 'Reservas',      icon: <CalendarDays size={18} />, roles: ['admin', 'collaborator'] },
   { to: '/admin/users',  label: 'Usuarios',      icon: <Users size={18} />,        roles: ['admin'] },
   { to: '/infrastructure', label: 'Infraestructura', icon: <Building size={18} />,   roles: ['admin'] },
-  { to: '/roi',          label: 'Rentabilidad',  icon: <TrendingUp size={18} />,   roles: ['admin'] },
+  { to: '/roi',          label: 'Consumo del nodo', icon: <TrendingUp size={18} />,   roles: ['admin'] },
 ]
 
 export default function Layout() {
@@ -215,10 +215,18 @@ export default function Layout() {
 
               <div className={`border rounded-xl divide-y ${modalRowBg}`}>
                 {activeEntries.map(e => (
-                  <div key={e.sensor_id} className="flex items-center justify-between px-4 py-3">
-                    <span className="font-semibold text-slate-100">{e.sensor_id}</span>
-                    <span className={`text-xs font-mono px-2 py-1 rounded ${modalPpmColor}`}>
-                      {e.co_ppm.toFixed(1)} ppm CO
+                  <div key={e.sensor_id} className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                      <span className="font-semibold text-slate-100">{e.room_name}</span>
+                      <span className="ml-2 font-mono text-xs text-slate-400">{e.sensor_id}</span>
+                      <p className="text-xs text-slate-300 mt-0.5">
+                        {e.alarm_active
+                          ? 'Alarma local activa en el nodo · buzzer y LED · ventilador 100 %'
+                          : 'Detectado por el servidor (CO > 50 ppm) · el nodo no reportó alarma local'}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 text-xs font-mono px-2 py-1 rounded ${modalPpmColor}`}>
+                      {e.co_ppm != null ? `${e.co_ppm.toFixed(1)} ppm CO` : 'CO sin dato'}
                     </span>
                   </div>
                 ))}

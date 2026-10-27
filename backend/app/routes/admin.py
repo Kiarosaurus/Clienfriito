@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
+from app.config import COMFORT_BAND_C
 from app.core.timeutils import ensure_local, to_local
 from app.database import get_db
 from app.database_sql import get_db_sql
@@ -268,10 +269,11 @@ def reload_model(current_user: User = Depends(get_current_user)):
     """
     _require_admin(current_user)
     from app.services.predictive_service import load_model, active_engine
+    from app.services.predictive_service import controller_mode
     load_model()
     engine = active_engine()
     logger.info("Admin '%s' reloaded ML model — engine now '%s'.", current_user.username, engine)
-    return {"engine": engine, "model_loaded": engine == "ml"}
+    return {"engine": engine, "model_loaded": engine == "ml", **controller_mode()}
 
 
 # ANTES: @router.post("/rooms", status_code=201)
@@ -1141,7 +1143,17 @@ async def get_room_timeline(
                 "avg_temp": {"$avg": "$temperature"},
                 "avg_humidity": {"$avg": "$humidity"},
                 "avg_co_ppm": {"$avg": "$co_ppm"},
+                # CS5055: PWM aplicado (telemetría) o, si falta, el comandado.
+                "avg_fan_pwm": {"$avg": {"$ifNull": ["$fan_pwm", "$cognitive_action.fan_pwm"]}},
                 "count": {"$sum": 1},
+                # CS5055 (aditivo): procedencia por bucket — 'simulado' (seed /
+                # simulador / is_simulated) y 'node' solo con marca explícita.
+                "simulated_count": {"$sum": {"$cond": [
+                    {"$or": [
+                        {"$eq": ["$is_simulated", True]},
+                        {"$in": [{"$ifNull": ["$data_origin", ""]}, ["seed", "simulator"]]},
+                    ]}, 1, 0]}},
+                "node_count": {"$sum": {"$cond": [{"$eq": ["$data_origin", "node"]}, 1, 0]}},
                 "ac_events": {"$push": {
                     "status": "$cognitive_action.ac_status",
                     "target": "$cognitive_action.target",
@@ -1205,6 +1217,9 @@ async def get_room_timeline(
                 point["actual_humidity"] = round(bucket["avg_humidity"], 2) if bucket.get("avg_humidity") is not None else None
                 point["actual_co_ppm"] = round(bucket["avg_co_ppm"], 2) if bucket.get("avg_co_ppm") is not None else None
                 point["readings_count"] = bucket.get("count", 0)
+                point["fan_pwm"] = round(bucket["avg_fan_pwm"], 1) if bucket.get("avg_fan_pwm") is not None else None
+                point["simulated_count"] = bucket.get("simulated_count", 0)
+                point["node_count"] = bucket.get("node_count", 0)
                 point["ac"] = {
                     "status": ac_status,
                     "setpoint": ac_setpoint,
@@ -1215,6 +1230,9 @@ async def get_room_timeline(
                 point["actual_humidity"] = None
                 point["actual_co_ppm"] = None
                 point["readings_count"] = 0
+                point["fan_pwm"] = None
+                point["simulated_count"] = 0
+                point["node_count"] = 0
                 point["ac"] = {
                     "status": "OFF",
                     "setpoint": None,
@@ -1251,7 +1269,11 @@ async def get_room_timeline(
                 projected_temp = predicted_temp
 
             point["predicted_temperature"] = predicted_temp
+            # Legacy field (kept for compatibility). The CS5055 dashboard no longer
+            # plots it: a 12 V fan cannot hold the setpoint like an AC would.
             point["projected_temperature"] = projected_temp
+            # CS5055 (additive): fan command the heuristic would issue that hour.
+            point["planned_fan_pwm"] = cog.get("fan_pwm")
             point["expected_people"] = expected_people
             point["ac"] = {
                 "status": ac_status,
@@ -1259,6 +1281,7 @@ async def get_room_timeline(
                 "configured_setpoint": room.target_temp,
                 "cooling_mode": cog.get("cooling_mode"),
                 "model": cog.get("model"),
+                "action": cog.get("action"),
             }
 
         timeline.append(point)
@@ -1271,5 +1294,7 @@ async def get_room_timeline(
         "window": {"start": start.isoformat(), "end": end.isoformat()},
         "baseline_temp": round(baseline_temp, 2),
         "baseline_source": baseline_source,
+        # CS5055 (aditivo): banda de confort única (misma que /reports/node-metrics).
+        "comfort_band_c": COMFORT_BAND_C,
         "timeline": timeline,
     }
