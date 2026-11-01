@@ -55,7 +55,8 @@
  *   - PRE_COOLING lo dispara el modelo de IA (requiere la ocupacion esperada
  *     segun la reserva); este firmware implementa solo la heuristica.
  *   - PubSubClient publica en QoS 0 (el subscribe usa QoS 1).
- *   - En hardware real el sensor es un DHT11: cambiar DHTTYPE a DHT11.
+ *   - El hardware real tambien usa DHT22 (±0.5 C, resolucion 0.1 C): la banda
+ *     de ±0.5 C de la histeresis no se puede resolver con un DHT11 (±2 C, 1 C).
  * ============================================================================
  */
 

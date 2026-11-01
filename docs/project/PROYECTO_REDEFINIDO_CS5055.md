@@ -47,7 +47,7 @@ Cuatro correcciones, todas aplicadas en este documento:
 
 | Observación del docente | Cambio aplicado |
 |---|---|
-| *"La cámara procesada externamente no cuenta como sensor del nodo IoT principal."* | La cámara deja de contarse en el mínimo de 3 sensores. El mínimo lo cubren **DHT11, MQ-135 y MQ-7, los tres sobre el ESP32**. La cámara pasa a **canal externo de validación**, en un proceso aparte sobre la laptop. Ver §6.1 y §12. |
+| *"La cámara procesada externamente no cuenta como sensor del nodo IoT principal."* | La cámara deja de contarse en el mínimo de 3 sensores. El mínimo lo cubren **DHT22, MQ-135 y MQ-7, los tres sobre el ESP32**. La cámara pasa a **canal externo de validación**, en un proceso aparte sobre la laptop. Ver §6.1 y §12. |
 | *"El ventilador DC de 12 V con relé o MOSFET es un excelente actuador principal. El buzzer, LED RGB y calefactor sirven como buenos complementos."* | Confirmada la jerarquía: ventilador = actuador principal; buzzer + LED RGB = actuador secundario (seguridad); calefactor PTC = **complemento adicional, compra condicionada** a cerrar antes las fases 1 y 2. Ver §4 y §5. |
 | *"El alcance es un poco ambicioso para 8 semanas… Su prioridad debe ser lograr que el ESP32 lea datos, los envíe por MQTT al dashboard y active actuadores físicos. La IA y la cámara deben avanzarlos en paralelo pero una vez aseguren que sus entradas de datos están operando."* | El plan pasa a **fases con puerta de avance** (§5). La cadena `ESP32 → MQTT → dashboard → actuador` es la Fase 1 y **bloquea** el inicio formal de la Fase 3 (IA y cámara). La validación experimental IA vs. heurística se acota a una ventana de datos definida, no abierta. |
 | *"Mantengan el proyecto económico; no recurran a procesadores costosos… coticen en Electromania, HiFi Electrónica o las galerías de Paruro."* | §4 cierra la **lista de compras definitiva** con precios referenciales de plaza y tienda sugerida. Único procesador comprado: **ESP32 DevKit**. La cámara usa una webcam y una laptop que el equipo ya tiene: **costo cero y ninguna Raspberry Pi ni SBC**. |
@@ -106,7 +106,7 @@ Esto no es un sustituto degradado del A/C, es una función complementaria y fís
 ```
 ┌───────────────── NODO IoT (ESP32 · PCB propia · carcasa 3D) ──────────────────┐
 │                                                                               │
-│   DHT11  (T, HR) ──┐                                                          │
+│   DHT22  (T, HR) ──┐                                                          │
 │   MQ-135 (CO2*)  ──┼──► ESP32  ──► lógica local de seguridad (CO > 50 ppm)    │
 │   MQ-7   (CO)    ──┘      │  ▲                │                               │
 │   INA219 (I, P)  ─────────┘  │                ▼                               │
@@ -164,7 +164,7 @@ Cubre los tres sensores mínimos, el actuador principal, el actuador de alarma y
 | # | Componente | Especificación | Cant. | Precio ref. unit. (S/) | Subtotal (S/) | Tienda sugerida |
 |---|---|---|---|---|---|---|
 | 1 | **ESP32 DevKit V1** | 38 pines, WiFi + BT, USB-C o micro-USB | 2 | 28 – 38 | 56 – 76 | Electromania / Paruro |
-| 2 | **DHT11** | Módulo con pull-up integrada | 2 | 8 – 12 | 16 – 24 | Electromania |
+| 2 | **DHT22** | Módulo con pull-up integrada; ±0.5 °C y resolución 0.1 °C (el DHT11, ±2 °C y 1 °C, no resuelve la banda de ±0.5 °C de la histéresis) | 2 | 15 – 25 | 30 – 50 | Electromania |
 | 3 | **MQ-135** | Módulo con salida analógica y digital | 1 | 15 – 22 | 15 – 22 | HiFi Electrónica / Paruro |
 | 4 | **MQ-7** | Módulo con salida analógica y digital | 1 | 16 – 25 | 16 – 25 | HiFi Electrónica / Paruro |
 | 5 | **Ventilador DC 12 V** | Axial 80–120 mm tipo PC, ~0.15–0.25 A | 1 | 15 – 30 | 15 – 30 | Paruro |
@@ -180,7 +180,7 @@ Cubre los tres sensores mínimos, el actuador principal, el actuador de alarma y
 
 **Notas de compra que no son opcionales:**
 
-- **Se compran 2 ESP32, 2 DHT11 y repuestos de buzzer/LED.** El costo marginal es despreciable frente a perder la demostración de la S15 por un módulo quemado. Riesgo R4 de §11.
+- **Se compran 2 ESP32, 2 DHT22 y repuestos de buzzer/LED.** El costo marginal es despreciable frente a perder la demostración de la S15 por un módulo quemado. Riesgo R4 de §11.
 - **Los MQ entregan 5 V en su salida analógica y el ADC del ESP32 no tolera 5 V.** Cada salida analógica lleva **divisor resistivo 5 V→3.3 V** (p. ej. 10 kΩ / 20 kΩ). Esto va en la PCB y también en el montaje de protoboard. No es opcional: sin el divisor se destruye el pin.
 - **El ventilador nunca se alimenta desde un GPIO.** Fuente de 12 V independiente, **masa común** con el ESP32, **diodo flyback** en paralelo con el motor por ser carga inductiva, y optoacoplador si se usa relé.
 - **Los MQ requieren precalentamiento** (24–48 h la primera vez para el MQ-135; el MQ-7 opera con ciclo de calentador). Comprarlos en la S7 no es exceso de celo: es la única forma de tener calibración creíble en la S11.
@@ -259,7 +259,7 @@ Es literalmente lo que el docente pidió priorizar: *ESP32 lee → envía por MQ
 
 | # | Tarea | Cierra |
 |---|---|---|
-| 1.1 | Firmware ESP32: lectura de DHT11, MQ-135 y MQ-7 cada 2 s, con divisores en las entradas analógicas | RF-01…03 |
+| 1.1 | Firmware ESP32: lectura de DHT22, MQ-135 y MQ-7 cada 2 s, con divisores en las entradas analógicas | RF-01…03 |
 | 1.2 | Bróker Mosquitto como quinto servicio del `docker-compose`, con autenticación | RNF-15 |
 | 1.3 | Publicación de telemetría en `ccs/A403/telemetry`, QoS 1 | RF-07 |
 | 1.4 | Ingesta MQTT en el backend y visualización en el dashboard | RF-25 |
@@ -323,7 +323,7 @@ El enunciado exige **evidencia de avance calificada cada semana desde la S11**, 
 
 | # | Sensor | Magnitud | Rol en el sistema | Carácter | Estado |
 |---|---|---|---|---|---|
-| 1 | **DHT11** | Temperatura (°C), humedad (%) | Entrada principal de **ambas** lógicas de decisión | **Vital — cuenta al mínimo** | Operativo |
+| 1 | **DHT22** | Temperatura (°C), humedad (%) | Entrada principal de **ambas** lógicas de decisión | **Vital — cuenta al mínimo** | Operativo |
 | 2 | **MQ-135** | CO₂-proxy (ppm relativos) | Estimación de ocupación por balance de masa; dispara ventilación por calidad de aire | **Vital — cuenta al mínimo** | Operativo, calibración pendiente |
 | 3 | **MQ-7** | CO (ADC → ppm, curva de datasheet, `R0` en aire limpio) | Canal de seguridad; dispara alarma local y ventilación de evacuación | **Vital — cuenta al mínimo** | Operativo, `R0` documentado |
 | 4 | **INA219** (o ACS712) | Corriente y potencia del ventilador | Convierte el reporte de ahorro de estimación en medición | Adicional (en el nodo) | Nuevo |
@@ -448,7 +448,7 @@ Requisitos derivados de la física del sistema, no de la estética:
 |---|---|
 | Alimentación | Jack de 12 V, buck 12→5 V (MP1584/LM2596), LDO 5→3.3 V (AMS1117), desacoplo, diodo de protección contra inversión de polaridad |
 | Cómputo | Zócalo de headers hembra para ESP32 DevKit (**socketed, no soldado** — permite reemplazar el módulo si se daña) |
-| Sensado | Header DHT11 con pull-up de 4.7 kΩ en placa; MQ-135 y MQ-7 con **divisor 5 V→3.3 V** en cada salida analógica; header I²C para el INA219 |
+| Sensado | Header DHT22 con pull-up de 4.7 kΩ en placa; MQ-135 y MQ-7 con **divisor 5 V→3.3 V** en cada salida analógica; header I²C para el INA219 |
 | Potencia | MOSFET de nivel lógico + resistencia de gate + pull-down, diodo flyback, bornera de tornillo para el ventilador; segundo canal previsto para el calefactor |
 | Alarma | Transistor para el buzzer, resistencias limitadoras para el LED RGB |
 | Utilidad | LED de alimentación, pulsador de reset, punto de prueba de 3.3 V, plano de masa, serigrafía con nombre del proyecto, versión y siglas del equipo |
@@ -486,7 +486,7 @@ CCS no corresponde a ninguna de las 10 líneas sugeridas, así que cae en *Proye
 
 | Requisito | Estado tras la redefinición |
 |---|---|
-| Sensores ≥ 3 | ✅ 3 en el nodo (DHT11, MQ-135, MQ-7) + INA219 adicional |
+| Sensores ≥ 3 | ✅ 3 en el nodo (DHT22, MQ-135, MQ-7) + INA219 adicional |
 | Actuador ≥ 1 funcional | ✅ 2 vitales (ventilador + alarma) + calefactor adicional |
 | Comunicación inalámbrica | ✅ MQTT/WiFi, bidireccional, QoS 1 |
 | Interfaz con procesamiento previo | ✅ Comparación IA vs. heurística, ML validado, ocupación inferida, ahorro |
@@ -529,7 +529,7 @@ Nomenclatura `RF-##`. Prioridad: **Crítica** (sin esto no se cumple la rúbrica
 
 | ID | Requisito | Prioridad | Verificación |
 |---|---|---|---|
-| RF-01 | El nodo debe muestrear temperatura y humedad ambiente cada 2 s (± 0.5 s) mediante DHT11. | Crítica | Log serial + telemetría recibida en el bróker |
+| RF-01 | El nodo debe muestrear temperatura y humedad ambiente cada 2 s (± 0.5 s) mediante DHT22. | Crítica | Log serial + telemetría recibida en el bróker |
 | RF-02 | El nodo debe muestrear CO₂-proxy cada 2 s mediante MQ-135. | Crítica | Ídem |
 | RF-03 | El nodo debe muestrear CO cada 2 s mediante MQ-7, convirtiendo la lectura ADC a ppm con la curva del datasheet y el `R0` calibrado en aire limpio. | Crítica | Procedimiento de calibración documentado |
 | RF-04 | El nodo debe medir la corriente consumida por el actuador y reportarla junto con la telemetría. | Alta | Contraste con multímetro de pinza |

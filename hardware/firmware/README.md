@@ -11,7 +11,8 @@ Lee DHT22, MQ-135 y MQ-7, decide **en el propio nodo** qué hacer con el ventila
 | [`wokwi.toml`](wokwi.toml) | Firmware a simular y puerto serial RFC2217 (4000) |
 | [`platformio.ini`](platformio.ini) | Placa `esp32dev`, framework Arduino y librerías |
 
-> En hardware real cambia `DHTTYPE` a `DHT11` y reemplaza las conversiones simuladas del
+> El hardware real también usa DHT22: con un DHT11 (±2 °C, resolución 1 °C) la banda de ±0.5 °C
+> no se puede distinguir. Sí hay que reemplazar las conversiones simuladas del
 > MQ-135 (`CO2_PPM_MIN/MAX`) y del MQ-7 por sus curvas de calibración.
 
 ## Compilar y simular
