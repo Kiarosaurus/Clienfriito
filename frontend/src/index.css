@@ -55,13 +55,10 @@
   .btn-danger { @apply bg-red-600 text-white hover:bg-red-500; }
   .btn-ghost { @apply text-slate-400 hover:bg-slate-800 hover:text-slate-100; }
 
-  .chip { @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1; }
-  .chip-ok { @apply bg-emerald-500/10 text-emerald-300 ring-emerald-500/30; }
-  .chip-warn { @apply bg-amber-500/10 text-amber-300 ring-amber-500/30; }
-  .chip-high { @apply bg-orange-500/10 text-orange-300 ring-orange-500/30; }
-  .chip-alert { @apply bg-red-500/10 text-red-300 ring-red-500/30; }
-  .chip-info { @apply bg-sky-500/10 text-sky-300 ring-sky-500/30; }
-  .chip-muted { @apply bg-slate-500/10 text-slate-300 ring-slate-500/30; }
+  /* Chips are neutral: the status colour lives only in the small dot the Chip component
+     draws (rule 7 — colour used sparingly, so it still stands out where it matters). */
+  .chip { @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-slate-800/70 px-2 py-0.5 text-xs font-medium text-slate-200 ring-1 ring-slate-700; }
+  .chip-ok, .chip-warn, .chip-high, .chip-alert, .chip-info, .chip-muted { }
 
   .table-head { @apply border-b border-slate-800 text-left text-xs font-normal text-slate-400; }
   .table-row { @apply border-b border-slate-800/60 transition-colors hover:bg-slate-800/30; }

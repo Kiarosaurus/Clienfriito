@@ -38,15 +38,24 @@ export const LEVEL_TONE: Record<SensorLevel, Tone> = {
 // Text color for a measured value: neutral when in range, status color otherwise.
 export const valueText = (l: SensorLevel) => (l === 'normal' ? 'text-slate-200' : TONE_TEXT[LEVEL_TONE[l]])
 
-export function Chip({ tone = 'muted', dot = false, pulse = false, children, title }: {
+// Neutral pill; the tone only colours the dot. Muted chips have no dot unless asked.
+export function Chip({ tone = 'muted', dot, pulse = false, children, title }: {
   tone?: Tone; dot?: boolean; pulse?: boolean; children: ReactNode; title?: string
 }) {
+  const showDot = dot ?? tone !== 'muted'
   return (
-    <span
-      title={title}
-      className={`chip ${TONE_CHIP[tone]}`}
-    >
-      {dot && <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]} ${pulse ? 'animate-pulse' : ''}`} />}
+    <span title={title} className={`chip ${TONE_CHIP[tone]}`}>
+      {showDot && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[tone]} ${pulse ? 'animate-pulse' : ''}`} />}
+      {children}
+    </span>
+  )
+}
+
+// Status as plain text with a small coloured dot (lists and tables, where pills add noise).
+export function StatusText({ tone = 'muted', children, title }: { tone?: Tone; children: ReactNode; title?: string }) {
+  return (
+    <span title={title} className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-slate-300">
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[tone]}`} />
       {children}
     </span>
   )
@@ -83,7 +92,7 @@ export function PageHeader({ title, subtitle, children }: {
   )
 }
 
-// Compact KPI: label + status chip on top, value below. Always 72 px tall.
+// Compact KPI: label and status (dot + text) on top, the value below. Always 72 px tall.
 export function Kpi({ label, value, unit, tone, status, hint }: {
   label: string; value: string; unit?: string; tone?: Tone; status?: string; hint?: string
 }) {
@@ -91,7 +100,7 @@ export function Kpi({ label, value, unit, tone, status, hint }: {
     <div className="surface flex h-[72px] flex-col justify-between px-3 py-2" title={hint}>
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-xs text-slate-400">{label}</span>
-        {status && <Chip tone={tone}>{status}</Chip>}
+        {status && <StatusText tone={tone}>{status}</StatusText>}
       </div>
       <p className="truncate text-xl font-semibold leading-none text-white tabular-nums">
         {value}
