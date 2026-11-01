@@ -46,6 +46,14 @@
       focus:ring-blue-500/40 disabled:opacity-50;
   }
 
+  /* Selects: own chevron, aligned with the field's padding (the native arrow sat on the edge). */
+  select.field {
+    @apply appearance-none bg-no-repeat pr-9;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-position: right 0.75rem center;
+    background-size: 16px 16px;
+  }
+
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm
       font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
