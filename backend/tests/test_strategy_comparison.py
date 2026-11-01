@@ -6,11 +6,11 @@ from app.services.strategy_comparison import (
 )
 
 
-def reading(ts, accion, pwm=0, ai="STANDBY", mode=None, heater=False, alarm=False):
+def reading(ts, accion, pwm=0, ai="STANDBY", mode=None, heater=False, alarm=False, manual=False):
     return {
         "timestamp": f"2026-10-26T15:{ts}.000000",
         "temperature": 24.0, "co2_ppm": 900,
-        "node_state": {"accion": accion, "ventilador_pwm": pwm, "calefactor": heater, "alarma_co": alarm, "motivo": "x"},
+        "node_state": {"accion": accion, "ventilador_pwm": pwm, "calefactor": heater, "alarma_co": alarm, "motivo": "x", "manual": manual},
         "cognitive_action": {"ac_status": ai, "cooling_mode": mode},
     }
 
@@ -63,3 +63,14 @@ def test_energy_uses_duty_time_and_caps_gaps():
     assert e["ai_fan_wh"] == pytest.approx(ai_fan, abs=1e-3)
     assert e["node_heater_wh"] == pytest.approx(HEATER_POWER_W * 10 / 3600, abs=1e-3)
     assert e["hours"] == pytest.approx(sum(gaps) / 3600, abs=1e-3)
+
+
+def test_manual_orders_are_not_compared_but_their_energy_counts():
+    docs = [
+        reading("00:00", "COOLING", 255, ai="STANDBY", manual=True),
+        reading("00:10", "STANDBY", 0, ai="STANDBY"),
+    ]
+    s = summarize(docs)
+    assert compare_reading(docs[0]) is None
+    assert s["compared"] == 1 and s["excluded_manual"] == 1
+    assert s["energy"]["node_fan_wh"] == pytest.approx(FAN_POWER_W * 10 / 3600, abs=1e-3)

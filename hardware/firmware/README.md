@@ -59,6 +59,7 @@ Haz clic en las piezas del circuito mientras corre la simulación:
 - **Periodo:** mide y publica cada 1 s; el bloque `CICLO` del log sale cada 2 s.
 - **Sin red:** sigue controlando el aula y reintenta la conexión MQTT cada 5 s.
 - **Caída del nodo:** keepalive MQTT de 5 s. Si el nodo deja de responder, el broker publica el *Last Will* `offline` en unos 7,5 s y el dashboard lo muestra (RF-10).
+- **Control manual (RF-26):** desde la vista del aula, un admin (o un colaborador con reserva vigente) puede encender o apagar el ventilador por un tiempo. El nodo lo aplica en el siguiente ciclo, sin esperar la histéresis, y al vencer vuelve a la heurística. La alarma de CO siempre tiene prioridad.
 
 ## MQTT
 
@@ -67,7 +68,7 @@ Haz clic en las piezas del circuito mientras corre la simulación:
 | `ccs/A403/telemetry` | nodo → backend y monitor | JSON por ciclo |
 | `ccs/A403/status` | nodo → monitor | `online`; `offline` por *Last Will* (retenido) |
 | `ccs/A403/config` | nodo → monitor | Umbrales del firmware (retenido) |
-| `ccs/A403/command` | backend → nodo | Reservado (el nodo ya está suscrito) |
+| `ccs/A403/command` | backend → nodo | Control manual (retenido): `{"modo":"manual","accion":"COOLING"\|"HEATING"\|"STANDBY","duracion_s":900,"nivel":50}` (`nivel`: potencia del ventilador, 20–100 %) o `{"modo":"auto"}` |
 
 ```json
 {
@@ -76,7 +77,7 @@ Haz clic en las piezas del circuito mientras corre la simulación:
   "accion": "COOLING", "alarma_co": false,
   "ventilador_pwm": 255, "calefactor": false, "buzzer": false, "led": "AZUL (enfriando)",
   "motivo": "Aula ocupada y T >= 24.5 C: ventilador ON",
-  "bloqueo_s": 0, "pendiente": "", "is_simulated": true
+  "bloqueo_s": 0, "pendiente": "", "manual": false, "manual_restante_s": 0, "is_simulated": true
 }
 ```
 

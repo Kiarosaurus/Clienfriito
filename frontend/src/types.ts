@@ -56,6 +56,8 @@ export interface NodeState {
   buzzer?: boolean
   led?: string
   bloqueo_s?: number
+  manual?: boolean            // manual override from the dashboard is active (RF-26)
+  manual_restante_s?: number
   pendiente?: string
   ciclo?: number
   uptime_s?: number

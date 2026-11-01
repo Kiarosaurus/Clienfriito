@@ -21,6 +21,12 @@
  *      ("offline") en el topico de estado y los umbrales retenidos en el de
  *      config. La consumen el backend (ccs/+/telemetry) y el monitor del nodo.
  *      Keepalive de 5 s: si el nodo cae, el broker publica "offline" en ~7.5 s.
+ *   5) Control manual desde el dashboard (ccs/A403/command, retenido):
+ *      {"modo":"manual","accion":"COOLING"|"HEATING"|"STANDBY","duracion_s":900,"nivel":50}
+ *      fuerza el ventilador (al "nivel" % de potencia, 100 si falta), el
+ *      calefactor o ambos apagados durante ese tiempo;
+ *      {"modo":"auto"} vuelve a la heuristica.
+ *      La alarma de CO siempre tiene prioridad sobre el control manual.
  *
  *  Formato del log serie:
  *     [  tiempo s] ETIQ  mensaje
@@ -166,6 +172,7 @@ unsigned long ultimaLecturaMs = 0;
 
 // Estado real de los actuadores, para reportarlo en el log
 int dutyVentilador = 0;            // 0-255
+int nivelManual = 100;             // % de potencia del ventilador en una orden manual
 bool calefactorEncendido = false;
 const char* colorLed = "APAGADO";
 bool ledRojoOn = false, ledVerdeOn = false, ledAzulOn = false;
@@ -178,6 +185,12 @@ char motivoDecision[128] = "";
 // (0 = sin bloqueo). Se publica en la telemetria para el candado del dashboard.
 unsigned long bloqueoSegundos = 0;
 Accion accionPendiente = ACCION_STANDBY;
+
+// Control manual (RF-26): accion forzada desde el dashboard hasta manualHastaMs.
+bool manualActivo = false;
+Accion accionManual = ACCION_STANDBY;
+unsigned long manualHastaMs = 0;
+const unsigned long MANUAL_MAX_S = 4UL * 3600UL;   // tope de seguridad: 4 h
 
 // ------------------------------- Log -----------------------------------------
 // Toda linea termina en "\r\n" (como Serial.println). Con "\n" solo, la Wokwi
@@ -296,7 +309,8 @@ void setLedEstado(Accion a) {
 
 int dutyDeAccion(Accion a) {
   switch (a) {
-    case ACCION_COOLING:     return 255;
+    case ACCION_COOLING:
+      return (manualActivo && accionManual == ACCION_COOLING ? nivelManual : 100) * 255 / 100;
     case ACCION_PRE_COOLING: return 140;
     default:                 return 0;
   }
@@ -387,10 +401,54 @@ Accion decidirHeuristica(float tempC, bool ocupado) {
 }
 
 // --------------------------------- Red ---------------------------------------
+// Lee el valor de una clave de un JSON plano, sin librerias: "clave":"valor" o "clave":123.
+// Suficiente para los comandos del backend, que tienen un solo nivel.
+String valorJson(const String& json, const char* clave) {
+  String patron = String("\"") + clave + "\"";
+  int i = json.indexOf(patron);
+  if (i < 0) return "";
+  i = json.indexOf(':', i + patron.length());
+  if (i < 0) return "";
+  i++;
+  while (i < (int)json.length() && json[i] == ' ') i++;
+  if (i < (int)json.length() && json[i] == '"') {
+    int fin = json.indexOf('"', i + 1);
+    return fin < 0 ? "" : json.substring(i + 1, fin);
+  }
+  int fin = i;
+  while (fin < (int)json.length() && json[fin] != ',' && json[fin] != '}') fin++;
+  return json.substring(i, fin);
+}
+
+// Comando del dashboard (RF-26). Llega retenido: tras un reinicio el nodo recupera
+// el ultimo comando (RF-12) y vuelve a aplicar su duracion completa.
 void onMqttMessage(char* topic, byte* payload, unsigned int length) {
   String msg;
   for (unsigned int i = 0; i < length; i++) msg += (char)payload[i];
   LOG("RED", "Comando recibido en %s: %s", topic, msg.c_str());
+
+  String modo = valorJson(msg, "modo");
+  if (modo == "auto" || msg.length() == 0) {
+    if (manualActivo) LOG("EVT", "Control manual desactivado: vuelve la heuristica");
+    manualActivo = false;
+    return;
+  }
+  if (modo != "manual") {
+    LOG("RED", "Comando ignorado: modo desconocido");
+    return;
+  }
+  String accion = valorJson(msg, "accion");
+  unsigned long duracion = (unsigned long)valorJson(msg, "duracion_s").toInt();
+  if (duracion == 0 || duracion > MANUAL_MAX_S) duracion = min(duracion == 0 ? 900UL : duracion, MANUAL_MAX_S);
+  if (accion == "COOLING") accionManual = ACCION_COOLING;
+  else if (accion == "HEATING") accionManual = ACCION_HEATING;
+  else if (accion == "STANDBY") accionManual = ACCION_STANDBY;
+  else { LOG("RED", "Comando ignorado: accion manual no soportada"); return; }
+  int nivel = valorJson(msg, "nivel").toInt();
+  nivelManual = (nivel >= 20 && nivel <= 100) ? nivel : 100;
+  manualActivo = true;
+  manualHastaMs = millis() + duracion * 1000UL;
+  LOG("EVT", "Control manual: %s durante %lu s", nombreAccion(accionManual), duracion);
 }
 
 void intentarWiFi() {
@@ -486,11 +544,12 @@ void publicarTelemetria(bool dhtOk, float tempC, float humedad, int mq135, int m
     "{\"ciclo\":%lu,\"uptime_s\":%.1f,\"temp_c\":%s,\"humedad\":%s,\"co2_proxy\":%d,\"co2_ppm\":%.0f,"
     "\"co_ppm\":%d,\"accion\":\"%s\",\"alarma_co\":%s,\"ventilador_pwm\":%d,"
     "\"calefactor\":%s,\"buzzer\":%s,\"led\":\"%s\",\"motivo\":\"%s\","
-    "\"bloqueo_s\":%lu,\"pendiente\":\"%s\",\"is_simulated\":%s}",
+    "\"bloqueo_s\":%lu,\"pendiente\":\"%s\",\"manual\":%s,\"manual_restante_s\":%lu,\"is_simulated\":%s}",
     numeroCiclo, millis() / 1000.0, temp, hum, mq135, co2ppm, mq7ppm, nombreAccion(accionActual),
     alarmaCO ? "true" : "false", dutyVentilador,
     calefactorEncendido ? "true" : "false", buzzerEncendido ? "true" : "false",
     colorLed, motivo, bloqueoSegundos, bloqueoSegundos ? nombreAccion(accionPendiente) : "",
+    manualActivo ? "true" : "false", manualActivo ? (manualHastaMs - millis() + 999) / 1000 : 0UL,
     TELEMETRIA_SIMULADA ? "true" : "false");
   if (!mqtt.publish(TOPIC_TELEMETRY, buf)) {
     LOG("RED", "No se pudo publicar la telemetria");
@@ -661,9 +720,28 @@ void loop() {
   // --- 3. Decision de clima ---
   // Solo la heuristica bloquea; con alarma de CO o sin lectura del DHT no hay bloqueo.
   bloqueoSegundos = 0;
+  if (manualActivo && (long)(millis() - manualHastaMs) >= 0) {
+    manualActivo = false;
+    LOG("EVT", "Control manual vencido: vuelve la heuristica");
+  }
   if (alarmaCO) {
     snprintf(motivoDecision, sizeof(motivoDecision),
              "CO >= %d ppm: ventilador al 100 %%, calefactor OFF y buzzer ON", CO_ALARM_PPM);
+  } else if (manualActivo) {
+    // El control manual no espera la histeresis: es una orden explicita del usuario.
+    unsigned long restante = (manualHastaMs - millis() + 999) / 1000;
+    snprintf(motivoDecision, sizeof(motivoDecision),
+             "Control manual desde el dashboard: %s (quedan %lu s)",
+             accionManual == ACCION_COOLING ? (nivelManual < 100 ? "ventilador ON (potencia reducida)" : "ventilador ON")
+             : accionManual == ACCION_HEATING ? "calefactor ON" : "ventilador y calefactor OFF",
+             restante);
+    if (accionManual != accionActual) {
+      LOG("EVT", "Transicion de estado (manual): %s -> %s",
+          nombreAccion(accionActual), nombreAccion(accionManual));
+      accionActual = accionManual;
+      ultimoCambioMs = millis();
+      huboCambioActuador = true;
+    }
   } else if (!dhtOk) {
     snprintf(motivoDecision, sizeof(motivoDecision),
              "Sin lectura del DHT22: se mantiene el ultimo estado");

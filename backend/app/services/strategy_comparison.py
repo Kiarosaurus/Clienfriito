@@ -8,6 +8,8 @@ Coincidence
     cooled?". The AI does not drive the heater, so the node's HEATING counts as
     "no cooling", like STANDBY. Readings under a CO alarm are excluded: the node
     forces the fan to maximum for safety (RF-24), which is not a thermal decision.
+    Readings under a manual order from the dashboard (RF-26) are excluded too: the
+    heuristic was not deciding. Their energy still counts, because it was consumed.
 
 Energy (estimated, same time window for both strategies)
     energy = fan power × fan duty × time the decision was in force.
@@ -62,7 +64,7 @@ def ai_intent(cognitive_action: dict | None) -> Optional[str]:
 def compare_reading(doc: dict) -> Optional[dict]:
     """Per-reading comparison stored at ingest. None when it does not apply."""
     node = doc.get("node_state")
-    if not node or node.get("alarma_co"):
+    if not node or node.get("alarma_co") or node.get("manual"):
         return None
     n, a = node_intent(node), ai_intent(doc.get("cognitive_action"))
     if n is None or a is None:
@@ -89,7 +91,7 @@ def summarize(docs: Iterable[dict], max_divergences: int = 20) -> dict:
     gaps = [(b - a).total_seconds() for a, b in zip(times, times[1:])]
     typical = median(gaps) if gaps else 0.0
 
-    compared = matches = alarm = 0
+    compared = matches = alarm = manual = 0
     node_fan_wh = ai_fan_wh = heater_wh = 0.0
     covered_s = 0.0
     pairs: dict[str, int] = {}
@@ -109,6 +111,9 @@ def summarize(docs: Iterable[dict], max_divergences: int = 20) -> dict:
 
         if node.get("alarma_co"):
             alarm += 1
+            continue
+        if node.get("manual"):
+            manual += 1
             continue
         cmp = d.get("comparison") or compare_reading(d)
         if not cmp:
@@ -139,6 +144,7 @@ def summarize(docs: Iterable[dict], max_divergences: int = 20) -> dict:
         "matches": matches,
         "coincidence_pct": round(100 * matches / compared, 1) if compared else None,
         "excluded_co_alarm": alarm,
+        "excluded_manual": manual,
         "divergence_pairs": [
             {"node_action": k.split("|")[0], "ai_status": k.split("|")[1], "count": v}
             for k, v in sorted(pairs.items(), key=lambda kv: -kv[1])

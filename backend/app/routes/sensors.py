@@ -393,6 +393,112 @@ async def node_status(current_user: User = Depends(get_current_user)):
     return list(NODE_STATUS.values())
 
 
+class OverrideIn(BaseModel):
+    mode: str            # auto | fan | heater | off  ("on" = fan, kept for older clients)
+    minutes: int = 15    # duration of a manual order (1..240)
+    level: int = 100     # fan power in % for a "fan" order (20..100; PC fans stall below ~20 %)
+
+
+# What each manual mode forces on the node (the firmware's accion). The node never runs
+# fan and heater together, so the modes are mutually exclusive.
+OVERRIDE_ACTIONS = {"fan": "COOLING", "on": "COOLING", "heater": "HEATING", "off": "STANDBY"}
+
+
+def override_command(mode: str, minutes: int, by: str, level: int = 100) -> dict:
+    """MQTT command for a manual order; raises ValueError for an unknown mode."""
+    if mode == "auto":
+        return {"modo": "auto"}
+    if mode not in OVERRIDE_ACTIONS:
+        raise ValueError(mode)
+    command = {"modo": "manual", "accion": OVERRIDE_ACTIONS[mode], "duracion_s": minutes * 60, "por": by}
+    if OVERRIDE_ACTIONS[mode] == "COOLING":
+        command["nivel"] = level
+    return command
+
+
+def _require_room_control(db_sql: Session, current_user: User, room_id: str) -> None:
+    """Admins always; collaborators only during their active reservation on the room (RF-37)."""
+    if current_user.role == "admin":
+        return
+    if current_user.role != "collaborator":
+        raise HTTPException(status_code=403, detail="Guests cannot control devices.")
+    now = local_now()
+    active = db_sql.query(Reservation).filter(
+        Reservation.user_id == current_user.id,
+        Reservation.room_id == room_id,
+        Reservation.start_time <= now,
+        Reservation.end_time >= now,
+    ).first()
+    if not active:
+        raise HTTPException(status_code=403, detail="No active reservation for this room. Control denied.")
+
+
+@router.post("/rooms/{room_id}/override", responses={403: {"model": ErrorDetail}, 503: {"model": ErrorDetail}})
+async def override_room(
+    room_id: str,
+    payload: OverrideIn,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    db_sql: Session = Depends(get_db_sql),
+    current_user: User = Depends(get_current_user),
+):
+    """Manual override of the room's fan or heater from the dashboard (RF-26).
+
+    Publishes a retained command to ccs/<room>/command; the node applies it within one
+    cycle (RF-08) and reports `manual` in its telemetry. A CO alarm on the node keeps
+    priority over any manual order (RF-24).
+    """
+    if payload.mode != "auto" and payload.mode not in OVERRIDE_ACTIONS:
+        raise HTTPException(status_code=422, detail="mode must be auto, fan, heater or off.")
+    if not 1 <= payload.minutes <= 240:
+        raise HTTPException(status_code=422, detail="minutes must be between 1 and 240.")
+    if not 20 <= payload.level <= 100:
+        raise HTTPException(status_code=422, detail="level must be between 20 and 100.")
+    await run_in_threadpool(_require_room_control, db_sql, current_user, room_id)
+
+    from app.config import MQTT_ENABLED
+    from app.services.mqtt_ingest import publish_command
+    if not MQTT_ENABLED:
+        raise HTTPException(status_code=503, detail="MQTT is disabled on this server.")
+    command = override_command(payload.mode, payload.minutes, current_user.username, payload.level)
+    try:
+        await publish_command(room_id, command)
+    except Exception as exc:  # broker down or unreachable
+        logger.error("Could not publish override for %s: %s", room_id, exc)
+        raise HTTPException(status_code=503, detail="MQTT broker unavailable.") from exc
+    logger.info("Override %s for room %s by '%s'", command, room_id, current_user.username)
+    # The node only reports the time left; keep the order so the dashboard knows its length.
+    order = {
+        "_id": room_id,
+        "mode": "fan" if payload.mode == "on" else payload.mode,
+        "minutes": None if payload.mode == "auto" else payload.minutes,
+        "level": payload.level if command.get("accion") == "COOLING" else None,
+        "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+        "by": current_user.username,
+    }
+    try:
+        await db["manual_orders"].replace_one({"_id": room_id}, order, upsert=True)
+    except PyMongoError as exc:   # the order was sent; only its record is missing
+        logger.error("Could not record manual order for %s: %s", room_id, exc)
+    return {"room_id": room_id, "command": command}
+
+
+@router.get("/rooms/{room_id}/override")
+async def last_override(
+    room_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Last manual order sent to the room: mode, minutes, when (naive UTC) and by whom."""
+    try:
+        doc = await db["manual_orders"].find_one({"_id": room_id})
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+    if not doc:
+        return {"room_id": room_id, "mode": "auto", "minutes": None, "started_at": None, "by": None}
+    doc["room_id"] = doc.pop("_id")
+    return doc
+
+
 # ANTES: @router.put("/{sensor_id}/control")
 # AHORA: se agregan response_model=SensorControlOut y responses={401,403,404}
 # — es el endpoint de la Action 12 (Encender/apagar sensor) de la guía.

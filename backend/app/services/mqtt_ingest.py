@@ -33,7 +33,7 @@ RETRY_SECONDS = 5
 # Node decision fields copied verbatim into node_state.
 NODE_STATE_FIELDS = (
     "accion", "motivo", "alarma_co", "ventilador_pwm", "calefactor", "buzzer", "led",
-    "bloqueo_s", "pendiente", "ciclo", "uptime_s", "co2_proxy",
+    "bloqueo_s", "pendiente", "ciclo", "uptime_s", "co2_proxy", "manual", "manual_restante_s",
 )
 
 # Node connectivity (RF-10), from ccs/<room>/status: "online" on connect and the
@@ -60,6 +60,14 @@ def status_update(topic: str, payload: bytes | str, retained: bool = False) -> d
     }
     NODE_STATUS[parts[1]] = entry
     return entry
+
+
+async def publish_command(room_id: str, payload: dict) -> None:
+    """Publish a retained command to ccs/<room>/command (RF-26; retained for RF-12)."""
+    import aiomqtt
+
+    async with aiomqtt.Client(MQTT_HOST, MQTT_PORT, identifier=f"ccs-cmd-{uuid.uuid4().hex[:8]}") as client:
+        await client.publish(f"ccs/{room_id}/command", json.dumps(payload), qos=1, retain=True)
 
 
 def telemetry_to_reading(topic: str, payload: bytes | str) -> SensorReading | None:

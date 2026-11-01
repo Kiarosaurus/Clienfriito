@@ -150,7 +150,7 @@ No lo levantes a la vez que Docker: usan los mismos puertos.
 
 | Pieza | Detalle |
 |---|---|
-| Tópicos | `ccs/A403/telemetry`, `status` (Last Will), `config` (umbrales) y `command` (reservado) |
+| Tópicos | `ccs/A403/telemetry`, `status` (Last Will, visible en el dashboard en ≤ 10 s), `config` (umbrales) y `command` (control manual del ventilador desde el dashboard) |
 | Ingesta | El backend se suscribe a `ccs/+/telemetry`, traduce cada mensaje a `SensorReading` (`sensor_id = s-<aula>`) y lo procesa igual que `POST /api/v1/sensors/` |
 | CO₂ | El nodo envía `co2_ppm` (conversión simulada del MQ-135, 400–2000 ppm); el backend estima la ocupación como (CO₂ − 420) / 25 |
 | Lecturas simuladas | El nodo marca `is_simulated: true`; el backend las separa de las del hardware real |

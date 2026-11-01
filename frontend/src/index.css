@@ -71,3 +71,18 @@
   .segmented-item { @apply inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-slate-400 transition-colors hover:text-slate-100; }
   .segmented-item-active { @apply bg-slate-800 text-white; }
 }
+
+/* Manual control: a fan that spins and heat waves that rise while an actuator runs. */
+@keyframes fan-rotate { to { transform: rotate(360deg); } }
+@keyframes heat-rise {
+  0% { transform: translateY(3px); opacity: 0; }
+  40% { opacity: 1; }
+  100% { transform: translateY(-4px); opacity: 0; }
+}
+.fan-spin { animation: fan-rotate 1s linear infinite; transform-box: fill-box; transform-origin: center; }
+.heat-wave { animation: heat-rise 1.8s ease-in infinite; transform-box: fill-box; }
+.heat-wave-2 { animation-delay: 0.6s; }
+.heat-wave-3 { animation-delay: 1.2s; }
+@media (prefers-reduced-motion: reduce) {
+  .fan-spin, .heat-wave { animation: none; }
+}
