@@ -347,7 +347,7 @@ El docente confirmó esta jerarquía: *"El ventilador DC de 12 V con relé o MOS
 
 - **Elemento:** ventilador de PC de 12 V y 4 pines (120 mm). El ESP32 regula su potencia por el **cable PWM** (25 kHz, sin etapa de potencia para la velocidad) y lee las **RPM reales** por el **tacómetro** (D33, 2 pulsos por vuelta), que viajan en la telemetría como `ventilador_rpm`. El MOSFET IRLZ44N queda para el calefactor; el relé, como plan B.
 - **Comando:** el nodo se suscribe a `ccs/A403/command`; el backend publica ahí la decisión de la lógica activa. El ESP32 traduce `COOLING` / `PRE-COOLING` / `STANDBY` / `DISABLED` a estado del ventilador.
-- **Modulación:** PWM sobre el MOSFET para tres niveles de caudal según la magnitud de la carga térmica, en lugar de ON/OFF binario. Demuestra control proporcional.
+- **Modulación:** tres niveles de caudal según la carga, en lugar de ON/OFF binario: **50 %** de 24.5 a 25 °C, **75 %** de 25 a 25.5 °C y **100 %** desde 25.5 °C o con CO₂ ≥ 1500 ppm; para bajar de nivel exige 0.2 °C de margen y no oscila. Una orden manual del dashboard puede fijar otra potencia (20–100 %; por debajo de ~20 % un ventilador de PC se detiene), y el tacómetro confirma la velocidad alcanzada. Demuestra control proporcional con realimentación medida.
 - **Protecciones obligatorias:** fuente de 12 V independiente (nunca alimentar el motor desde un GPIO), masa común, diodo flyback 1N4007 en paralelo con el motor, optoacoplador si se usa relé.
 - **Histéresis:** encendido mínimo de 60 s y banda muerta de ±0.5 °C. Sin esto el ventilador oscila con lecturas cada 2 s: la demostración se ve mal y el motor sufre.
 

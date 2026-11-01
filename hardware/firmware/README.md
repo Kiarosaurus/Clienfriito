@@ -35,7 +35,7 @@ Haz clic en las piezas del circuito mientras corre la simulación:
 | Escenario | Qué hacer | Qué deberías ver |
 |---|---|---|
 | Aula vacía | Potenciómetro superior (MQ-135) al mínimo | **DISABLED**, todo apagado |
-| Hace calor | Aula ocupada y T ≥ 24.5 °C en el DHT22 | **COOLING**: ventilador al 100 %, LED azul |
+| Hace calor | Aula ocupada y T ≥ 24.5 °C en el DHT22 | **COOLING**: ventilador al **50 %** (24.5–25 °C), **75 %** (25–25.5 °C) o **100 %** (desde 25.5 °C o con CO₂ ≥ 1500 ppm); baja de nivel con 0.2 °C de margen. LED azul |
 | Hace frío | Aula ocupada y T ≤ 23.5 °C | **HEATING**: calefactor encendido, LED ámbar |
 | Temperatura agradable | 23.5 °C < T < 24.5 °C | **STANDBY**, LED verde |
 | Histéresis | Pasar de calor a frío (o al revés) en menos de 60 s | Cambio **retenido** con cuenta regresiva |

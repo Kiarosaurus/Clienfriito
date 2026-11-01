@@ -110,6 +110,13 @@ const float HYSTERESIS_C              = 0.5;     // banda muerta +-0.5 C
 const float T_VENTILADOR_ON_C         = SETPOINT_C + HYSTERESIS_C; // 24.5 C
 const float T_CALEFACTOR_ON_C         = SETPOINT_C - HYSTERESIS_C; // 23.5 C
 const float T_APAGADO_C               = SETPOINT_C;                // 24.0 C
+// Caudal proporcional al enfriar (tres niveles, en vez de ON/OFF binario):
+//   50 % de 24.5 a 25.0 C, 75 % de 25.0 a 25.5 C, 100 % desde 25.5 C o con CO2 alto.
+// Baja de nivel solo 0.2 C por debajo del umbral, para no oscilar entre niveles.
+const float T_NIVEL_75_C              = 25.0;
+const float T_NIVEL_100_C             = 25.5;
+const float CO2_NIVEL_100_PPM         = 1500.0;
+const float BANDA_NIVEL_C             = 0.2;
 const unsigned long MIN_ON_MS         = 60000UL; // intervalo minimo on/off
 // Umbrales de humedad: PROVISIONALES y solo informativos (clasifican la lectura en
 // el log; no intervienen en ninguna decision de control). Pendiente de definir su fuente.
@@ -183,6 +190,7 @@ int rpmVentilador = 0;             // vueltas por minuto medidas (o estimadas en
 volatile unsigned long pulsosTacometro = 0;
 unsigned long ultimaMedicionRpmMs = 0;
 int nivelManual = 100;             // % de potencia del ventilador en una orden manual
+int nivelReglas = 50;              // % de potencia que piden las reglas al enfriar (50/75/100)
 bool calefactorEncendido = false;
 const char* colorLed = "APAGADO";
 bool ledRojoOn = false, ledVerdeOn = false, ledAzulOn = false;
@@ -337,10 +345,25 @@ void medirRpmVentilador() {
   ultimaMedicionRpmMs = ahora;
 }
 
+int nivelPorCarga(float tempC, float co2ppm) {
+  if (tempC >= T_NIVEL_100_C || co2ppm >= CO2_NIVEL_100_PPM) return 100;
+  if (tempC >= T_NIVEL_75_C) return 75;
+  return 50;
+}
+
+// Sube de nivel en cuanto la carga lo pide; baja solo con 0.2 C de margen.
+void actualizarNivelReglas(float tempC, float co2ppm) {
+  int sube = nivelPorCarga(tempC, co2ppm);
+  int baja = nivelPorCarga(tempC + BANDA_NIVEL_C, co2ppm);
+  if (accionActual != ACCION_COOLING) nivelReglas = sube;   // al entrar a COOLING parte del nivel justo
+  else if (sube > nivelReglas) nivelReglas = sube;
+  else if (baja < nivelReglas) nivelReglas = baja;
+}
+
 int dutyDeAccion(Accion a) {
   switch (a) {
     case ACCION_COOLING:
-      return (manualActivo && accionManual == ACCION_COOLING ? nivelManual : 100) * 255 / 100;
+      return (manualActivo && accionManual == ACCION_COOLING ? nivelManual : nivelReglas) * 255 / 100;
     case ACCION_PRE_COOLING: return 140;
     default:                 return 0;
   }
@@ -779,11 +802,17 @@ void loop() {
     snprintf(motivoDecision, sizeof(motivoDecision),
              "Sin lectura del DHT22: se mantiene el ultimo estado");
   } else {
+    float co2ppm = CO2_PPM_MIN + mq135 * (CO2_PPM_MAX - CO2_PPM_MIN) / 4095.0;
+    actualizarNivelReglas(tempC, co2ppm);
     Accion nueva = decidirHeuristica(tempC, ocupado);
     if (nueva != accionActual) {
       LOG("EVT", "Transicion de estado: %s -> %s",
           nombreAccion(accionActual), nombreAccion(nueva));
       accionActual = nueva;
+    }
+    if (accionActual == ACCION_COOLING && bloqueoSegundos == 0) {
+      size_t n = strlen(motivoDecision);
+      snprintf(motivoDecision + n, sizeof(motivoDecision) - n, " (ventilador al %d %%)", nivelReglas);
     }
   }
 
