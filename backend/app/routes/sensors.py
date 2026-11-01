@@ -233,6 +233,77 @@ async def strategy_comparison_summary(
     ]
 
 
+@router.get("/rooms/{room_id}/history")
+async def room_history(
+    room_id: str,
+    day: Optional[str] = Query(None, alias="date", pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    format: str = Query("json", pattern="^(json|csv)$"),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    db_sql: Session = Depends(get_db_sql),
+    current_user: User = Depends(get_current_user),
+):
+    """What the room's node measured and did on one local day (latest day with data if
+    `date` is missing): 5-min series, classes, summary, events and state changes.
+    `format=csv` downloads every reading of that day."""
+    from datetime import date as date_cls
+    from fastapi.responses import Response
+    from app.services.room_history import FMT, OFFSET, PROJECTION, day_bounds, equipment_for, summarize_day
+
+    sensors = await run_in_threadpool(
+        lambda: [d.id for d in db_sql.query(SensorDevice).filter(SensorDevice.room_id == room_id).all()]
+    )
+    base = {"sensor_id": {"$in": sensors}, "node_state.accion": {"$exists": True}}
+    try:
+        first = await db["sensor_readings"].find(base, {"timestamp": 1}).sort("timestamp", 1).limit(1).to_list(length=1)
+        last = await db["sensor_readings"].find(base, {"timestamp": 1}).sort("timestamp", -1).limit(1).to_list(length=1)
+        if not last:
+            return {"room_id": room_id, "date": None}
+        data_end = datetime.fromisoformat(last[0]["timestamp"][:19])
+        anchor = date_cls.fromisoformat(day) if day else (data_end + OFFSET).date()
+        start, end = day_bounds(anchor)
+        match = {**base, "timestamp": {"$gte": start.strftime(FMT), "$lt": end.strftime(FMT)}}
+        docs = await db["sensor_readings"].find(match, PROJECTION).sort("timestamp", 1).to_list(length=None)
+        meta = await db["strategy_simulation_meta"].find_one({"_id": room_id})
+    except PyMongoError as exc:
+        logger.error("MongoDB unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+
+    if format == "csv":
+        lines = ["timestamp_utc,temperature,humidity,co2_ppm,co_ppm,accion,ventilador_pct,calefactor,ocupada,alarma_co,manual,motivo"]
+        for d in docs:
+            ns = d.get("node_state") or {}
+            motivo = (ns.get("motivo") or "").replace('"', "'")
+            lines.append(",".join(str(v) for v in [
+                d["timestamp"][:19], d.get("temperature", ""), d.get("humidity", ""), d.get("co2_ppm") or "", d.get("co_ppm") or "",
+                ns.get("accion", ""), round((ns.get("ventilador_pwm") or 0) * 100 / 255), int(bool(ns.get("calefactor"))),
+                int((ns.get("co2_proxy") or 0) >= 2200), int(bool(ns.get("alarma_co"))), int(bool(ns.get("manual"))), f'"{motivo}"',
+            ]))
+        return Response("\n".join(lines) + "\n", media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="historial_{room_id}_{anchor.isoformat()}.csv"'})
+
+    equipment = equipment_for(meta, start, end)
+    result = summarize_day(docs, equipment["fan_max_w"], equipment["heater_w"])
+    if meta and meta.get("start") and meta["start"] < end and meta["end"] >= start:
+        # Simulated days know how many people came: same class intervals as "Aprendizaje".
+        from app.services.strategy_series import _intervals
+        minutes = await db["strategy_simulation"].aggregate([
+            {"$match": {"room_id": room_id, "strategy": "rules", "ts": {"$gte": start, "$lt": end}}},
+            {"$group": {"_id": {"$dateTrunc": {"date": "$ts", "unit": "minute"}},
+                        "occ": {"$max": "$occupied"}, "people": {"$max": "$people"}}},
+        ]).to_list(length=None)
+        result["classes"] = _intervals(minutes)
+    return {
+        "room_id": room_id,
+        "date": anchor.isoformat(),
+        "start": start.strftime(FMT),
+        "end": end.strftime(FMT),
+        "data_start": first[0]["timestamp"][:19],
+        "data_end": data_end.strftime(FMT),
+        "equipment": equipment,
+        **result,
+    }
+
+
 @router.get("/rooms/{room_id}/strategies")
 async def room_strategies(
     room_id: str,
