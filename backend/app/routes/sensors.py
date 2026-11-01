@@ -117,7 +117,8 @@ async def ingest_reading(
 async def list_readings(
     room_id: Optional[str] = None,
     sensor_id: Optional[str] = None,
-    limit: int = Query(40, ge=1, le=200),
+    limit: int = Query(40, ge=1, le=2000),
+    since: Optional[str] = Query(None, description="Only readings newer than this stored timestamp (incremental polling)"),
     db: AsyncIOMotorDatabase = Depends(get_db),
     db_sql: Session = Depends(get_db_sql),
 ):
@@ -133,6 +134,8 @@ async def list_readings(
     elif sensor_id is not None:
         mongo_filter["sensor_id"] = sensor_id
 
+    if since:
+        mongo_filter["timestamp"] = {"$gt": since}
     cursor = db["sensor_readings"].find(mongo_filter).sort("timestamp", -1).limit(limit)
     docs = await cursor.to_list(length=limit)
     for d in docs:
