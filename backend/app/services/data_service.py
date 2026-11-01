@@ -158,7 +158,10 @@ async def shadow_learning_step(db, room_id: str, reading: SensorReading, db_sql=
               occupied, outdoor_temp(to_local(ts)), applied=applied, forecast=forecast)
     if ctrl.closed_minute:
         await db["learning_state"].replace_one({"_id": room_id}, {"_id": room_id, **ctrl.to_state()}, upsert=True)
-    return ctrl.summary()
+    summary = ctrl.summary()
+    from app.services.room_controller import remember_action
+    remember_action(room_id, ts, summary)
+    return summary
 
 
 async def save_reading(db, reading: SensorReading, cognitive_action: dict | None = None,

@@ -659,6 +659,57 @@ async def last_override(
     return doc
 
 
+class ControllerIn(BaseModel):
+    mode: str            # rules | learning
+
+
+@router.get("/rooms/{room_id}/controller")
+async def room_controller(
+    room_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Who drives the room (rules or learning), who chose it and when (naive UTC),
+    plus the last order the learning controller sent, if any."""
+    from app.services.room_controller import ORDER_BY, get_controller
+    try:
+        ctl = await get_controller(db, room_id)
+        order = await db["manual_orders"].find_one({"_id": room_id})
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+    last = None
+    if order and order.get("by") == ORDER_BY:
+        last = {k: order.get(k) for k in ("mode", "level", "minutes", "started_at")}
+    return {"room_id": room_id, **ctl, "last_order": last}
+
+
+@router.put("/rooms/{room_id}/controller", responses={403: {"model": ErrorDetail}, 503: {"model": ErrorDetail}})
+async def set_room_controller(
+    room_id: str,
+    payload: ControllerIn,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Switch between the node's rules and the learning controller (admins only)."""
+    from app.config import MQTT_ENABLED
+    from app.services.room_controller import CONTROLLERS, get_controller, set_controller
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can choose who controls the room.")
+    if payload.mode not in CONTROLLERS:
+        raise HTTPException(status_code=422, detail="mode must be rules or learning.")
+    if not MQTT_ENABLED:
+        raise HTTPException(status_code=503, detail="MQTT is disabled on this server.")
+    try:
+        ctl = await set_controller(db, room_id, payload.mode, current_user.username)
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+    except Exception as exc:   # broker down: the choice is saved, the loop retries the order
+        logger.error("Controller switch for %s could not reach the node: %s", room_id, exc)
+        ctl = await get_controller(db, room_id)
+    logger.info("Controller of room %s set to %s by '%s'", room_id, payload.mode, current_user.username)
+    return {"room_id": room_id, **ctl}
+
+
 # ANTES: @router.put("/{sensor_id}/control")
 # AHORA: se agregan response_model=SensorControlOut y responses={401,403,404}
 # — es el endpoint de la Action 12 (Encender/apagar sensor) de la guía.

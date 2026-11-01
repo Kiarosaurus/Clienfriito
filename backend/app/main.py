@@ -59,6 +59,18 @@ async def shutdown_mqtt():
 
 
 @app.on_event("startup")
+async def startup_learning_loop():
+    from app.services.room_controller import start_learning_loop
+    start_learning_loop()
+
+
+@app.on_event("shutdown")
+async def shutdown_learning_loop():
+    from app.services.room_controller import stop_learning_loop
+    await stop_learning_loop()
+
+
+@app.on_event("startup")
 async def startup_db():
     import app.models.admin  # register ORM models before create_all
     from app.database_sql import engine, Base, SessionLocal
