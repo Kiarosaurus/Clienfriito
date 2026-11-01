@@ -191,6 +191,48 @@ async def latest_by_room(
     return [{"room_id": r, "reading": latest.get(r)} for r in rooms]
 
 
+class NodeComparisonOut(BaseModel):
+    room_id: str
+    sensor_id: str
+    compared: int
+    matches: int
+    coincidence_pct: Optional[float] = None
+
+
+@router.get("/comparison/summary", response_model=List[NodeComparisonOut])
+async def strategy_comparison_summary(
+    hours: float = Query(24, gt=0, le=168),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    db_sql: Session = Depends(get_db_sql),
+    current_user: User = Depends(get_current_user),
+):
+    """Coincidence node vs AI for every node in one aggregation (overview, RF-29/30).
+
+    Uses the per-reading `comparison` recorded at ingest; readings without it (CO alarm,
+    manual order) are not heuristic decisions and do not count.
+    """
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S.%f")
+    devices = await run_in_threadpool(lambda: db_sql.query(SensorDevice.id, SensorDevice.room_id).all())
+    room_of = {sid: rid for sid, rid in devices if rid}
+    try:
+        groups = await db["sensor_readings"].aggregate([
+            {"$match": {"timestamp": {"$gte": since}, "comparison": {"$ne": None}}},
+            {"$group": {
+                "_id": "$sensor_id",
+                "n": {"$sum": 1},
+                "m": {"$sum": {"$cond": ["$comparison.match", 1, 0]}},
+            }},
+        ]).to_list(length=None)
+    except PyMongoError as exc:
+        logger.error("MongoDB unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+    return [
+        {"room_id": room_of[g["_id"]], "sensor_id": g["_id"], "compared": g["n"], "matches": g["m"],
+         "coincidence_pct": round(100 * g["m"] / g["n"], 1) if g["n"] else None}
+        for g in groups if g["_id"] in room_of
+    ]
+
+
 @router.get("/comparison")
 async def strategy_comparison(
     room_id: str,
