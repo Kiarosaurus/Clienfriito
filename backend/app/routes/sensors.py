@@ -233,6 +233,44 @@ async def strategy_comparison_summary(
     ]
 
 
+@router.get("/rooms/{room_id}/strategies")
+async def room_strategies(
+    room_id: str,
+    range_key: str = Query("1d", alias="range", pattern="^(12h|1d|7d|30d)$"),
+    source: str = Query("auto", pattern="^(auto|simulation|live)$"),
+    day: Optional[str] = Query(None, alias="date", pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    db_sql: Session = Depends(get_db_sql),
+    current_user: User = Depends(get_current_user),
+):
+    """Rules vs learning for one room, one point per time bucket.
+
+    `date` (local, YYYY-MM-DD) picks the day, its week or its month; without it, the
+    period holding the latest data. Periods follow the local calendar.
+
+    `auto` uses the room's strategy simulation when one exists (both strategies with
+    their own temperature) and the node's live readings otherwise (rules + the
+    learning controller's shadow decisions).
+    """
+    from datetime import date as date_cls
+    from app.services.strategy_series import live_series, simulation_series
+
+    anchor = date_cls.fromisoformat(day) if day else None
+
+    try:
+        meta = await db["strategy_simulation_meta"].find_one({"_id": room_id})
+        if meta and source != "live":
+            return await simulation_series(db, room_id, meta, range_key, anchor)
+        sensors = await run_in_threadpool(
+            lambda: [d.id for d in db_sql.query(SensorDevice).filter(SensorDevice.room_id == room_id).all()]
+        )
+        data = await live_series(db, sensors, range_key, anchor) if sensors else None
+    except PyMongoError as exc:
+        logger.error("MongoDB unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+    return data or {"source": "none"}
+
+
 @router.get("/comparison")
 async def strategy_comparison(
     room_id: str,
