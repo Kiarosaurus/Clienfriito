@@ -93,7 +93,8 @@
 #define DHTTYPE      DHT22
 #define MQ135_PIN    34   // D34 (ADC1_CH6)
 #define MQ7_PIN      35   // D35 (ADC1_CH7)
-#define FAN_PWM_PIN  25   // D25 -> MOSFET del ventilador (aqui: LED amarillo)
+#define FAN_PWM_PIN  25   // D25 -> cable PWM (azul) del ventilador de PC de 4 pines (aqui: LED amarillo)
+#define FAN_TACH_PIN 33   // D33 <- tacometro (verde) del ventilador: 2 pulsos por vuelta
 #define BUZZER_PIN   26   // D26
 #define LED_R_PIN    27   // D27
 #define LED_G_PIN    14   // D14
@@ -123,6 +124,12 @@ const float CO2_PPM_MIN               = 400.0;
 const float CO2_PPM_MAX               = 2000.0;
 // La telemetria viaja marcada como simulada: el backend la separa de la real.
 const bool  TELEMETRIA_SIMULADA       = true;
+// Wokwi no tiene ventilador con tacometro: las RPM se estiman de la potencia ordenada.
+// En hardware real poner false y se cuentan los pulsos del cable verde.
+const bool  TACOMETRO_SIMULADO        = true;
+const int   FAN_PULSOS_POR_VUELTA     = 2;      // estandar de los ventiladores de PC
+const int   FAN_RPM_MAX               = 1800;   // ventilador de 120 mm a 12 V (para la simulacion)
+const int   FAN_PWM_HZ                = 25000;  // estandar Intel para ventiladores de 4 pines: inaudible
 // Periodo de muestreo, control y telemetria MQTT (el dashboard recibe 1 dato/s).
 // El DHT22 solo se lee cada 2 s (limite de la libreria Adafruit): entre medio
 // devuelve la ultima lectura. MQ-135 y MQ-7 si se leen en cada ciclo.
@@ -172,6 +179,9 @@ unsigned long ultimaLecturaMs = 0;
 
 // Estado real de los actuadores, para reportarlo en el log
 int dutyVentilador = 0;            // 0-255
+int rpmVentilador = 0;             // vueltas por minuto medidas (o estimadas en Wokwi)
+volatile unsigned long pulsosTacometro = 0;
+unsigned long ultimaMedicionRpmMs = 0;
 int nivelManual = 100;             // % de potencia del ventilador en una orden manual
 bool calefactorEncendido = false;
 const char* colorLed = "APAGADO";
@@ -305,6 +315,26 @@ void setLedEstado(Accion a) {
     case ACCION_STANDBY:
     default:                 escribirLed(false, true,  false, "VERDE (en espera)"); break;
   }
+}
+
+void IRAM_ATTR alPulsoTacometro() { pulsosTacometro++; }
+
+// RPM del ultimo periodo: pulsos del tacometro, o una estimacion lineal en Wokwi
+// (los ventiladores de PC se detienen por debajo de ~20 % de PWM).
+void medirRpmVentilador() {
+  unsigned long ahora = millis();
+  unsigned long dt = ahora - ultimaMedicionRpmMs;
+  if (dt < 500) return;
+  if (TACOMETRO_SIMULADO) {
+    rpmVentilador = dutyVentilador < 51 ? 0 : (int)((long)FAN_RPM_MAX * dutyVentilador / 255);
+  } else {
+    noInterrupts();
+    unsigned long pulsos = pulsosTacometro;
+    pulsosTacometro = 0;
+    interrupts();
+    rpmVentilador = (int)(pulsos * 60000UL / (dt * FAN_PULSOS_POR_VUELTA));
+  }
+  ultimaMedicionRpmMs = ahora;
 }
 
 int dutyDeAccion(Accion a) {
@@ -539,14 +569,15 @@ void publicarTelemetria(bool dhtOk, float tempC, float humedad, int mq135, int m
   motivo[j] = '\0';
 
   float co2ppm = CO2_PPM_MIN + mq135 * (CO2_PPM_MAX - CO2_PPM_MIN) / 4095.0;
-  char buf[640]; // cabe en el buffer MQTT fijado con setBufferSize en setup()
+  medirRpmVentilador();
+  char buf[700]; // cabe en el buffer MQTT fijado con setBufferSize en setup()
   snprintf(buf, sizeof(buf),
     "{\"ciclo\":%lu,\"uptime_s\":%.1f,\"temp_c\":%s,\"humedad\":%s,\"co2_proxy\":%d,\"co2_ppm\":%.0f,"
-    "\"co_ppm\":%d,\"accion\":\"%s\",\"alarma_co\":%s,\"ventilador_pwm\":%d,"
+    "\"co_ppm\":%d,\"accion\":\"%s\",\"alarma_co\":%s,\"ventilador_pwm\":%d,\"ventilador_rpm\":%d,"
     "\"calefactor\":%s,\"buzzer\":%s,\"led\":\"%s\",\"motivo\":\"%s\","
     "\"bloqueo_s\":%lu,\"pendiente\":\"%s\",\"manual\":%s,\"manual_restante_s\":%lu,\"is_simulated\":%s}",
     numeroCiclo, millis() / 1000.0, temp, hum, mq135, co2ppm, mq7ppm, nombreAccion(accionActual),
-    alarmaCO ? "true" : "false", dutyVentilador,
+    alarmaCO ? "true" : "false", dutyVentilador, rpmVentilador,
     calefactorEncendido ? "true" : "false", buzzerEncendido ? "true" : "false",
     colorLed, motivo, bloqueoSegundos, bloqueoSegundos ? nombreAccion(accionPendiente) : "",
     manualActivo ? "true" : "false", manualActivo ? (manualHastaMs - millis() + 999) / 1000 : 0UL,
@@ -643,12 +674,14 @@ void setup() {
   pinMode(LED_G_PIN, OUTPUT);
   pinMode(LED_B_PIN, OUTPUT);
   pinMode(HEATER_PIN, OUTPUT);
+  pinMode(FAN_TACH_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(FAN_TACH_PIN), alPulsoTacometro, FALLING);
   escribirCalefactor(false);
 
 #if CCS_LEDC_API_NUEVA
-  ledcAttach(FAN_PWM_PIN, 5000, 8); // 5 kHz, 8 bits
+  ledcAttach(FAN_PWM_PIN, FAN_PWM_HZ, 8); // 25 kHz, 8 bits
 #else
-  ledcSetup(FAN_PWM_CHANNEL, 5000, 8);
+  ledcSetup(FAN_PWM_CHANNEL, FAN_PWM_HZ, 8);
   ledcAttachPin(FAN_PWM_PIN, FAN_PWM_CHANNEL);
 #endif
 

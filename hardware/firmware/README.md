@@ -75,7 +75,7 @@ Haz clic en las piezas del circuito mientras corre la simulación:
   "ciclo": 42, "uptime_s": 44.0,
   "temp_c": 25.6, "humedad": 55, "co2_proxy": 3535, "co2_ppm": 1781, "co_ppm": 4,
   "accion": "COOLING", "alarma_co": false,
-  "ventilador_pwm": 255, "calefactor": false, "buzzer": false, "led": "AZUL (enfriando)",
+  "ventilador_pwm": 255, "ventilador_rpm": 1800, "calefactor": false, "buzzer": false, "led": "AZUL (enfriando)",
   "motivo": "Aula ocupada y T >= 24.5 C: ventilador ON",
   "bloqueo_s": 0, "pendiente": "", "manual": false, "manual_restante_s": 0, "is_simulated": true
 }

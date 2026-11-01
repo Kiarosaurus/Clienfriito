@@ -167,7 +167,7 @@ Cubre los tres sensores mínimos, el actuador principal, el actuador de alarma y
 | 2 | **DHT22** | Módulo con pull-up integrada; ±0.5 °C y resolución 0.1 °C (el DHT11, ±2 °C y 1 °C, no resuelve la banda de ±0.5 °C de la histéresis) | 2 | 15 – 25 | 30 – 50 | Electromania |
 | 3 | **MQ-135** | Módulo con salida analógica y digital | 1 | 15 – 22 | 15 – 22 | HiFi Electrónica / Paruro |
 | 4 | **MQ-7** | Módulo con salida analógica y digital | 1 | 16 – 25 | 16 – 25 | HiFi Electrónica / Paruro |
-| 5 | **Ventilador DC 12 V** | Axial 80–120 mm tipo PC, ~0.15–0.25 A | 1 | 15 – 30 | 15 – 30 | Paruro |
+| 5 | **Ventilador de PC 12 V de 4 pines** | 120 mm, entrada PWM (25 kHz) y tacómetro (2 pulsos por vuelta), ~0.15–0.25 A. Permite regular la potencia desde el ESP32 y **medir las RPM reales** | 1 | 25 – 45 | 25 – 45 | Paruro |
 | 6 | **Módulo relé 1 canal** | 5 V, optoacoplado, contacto 10 A | 1 | 8 – 14 | 8 – 14 | Electromania |
 | 7 | **MOSFET IRLZ44N** | Canal N, nivel lógico 3.3 V | 4 | 3 – 6 | 12 – 24 | Paruro |
 | 8 | **Fuente 12 V 2 A** | Adaptador con jack 5.5×2.1 mm | 1 | 25 – 40 | 25 – 40 | Electromania |
@@ -176,7 +176,7 @@ Cubre los tres sensores mínimos, el actuador principal, el actuador de alarma y
 | 11 | **LED RGB cátodo común** | 5 mm + resistencias 220 Ω | 3 | 1 – 2 | 3 – 6 | Electromania |
 | 12 | **Diodos 1N4007** | Flyback y protección de polaridad | 10 | 0.30 – 0.60 | 3 – 6 | Paruro |
 | 13 | **Consumibles** | Protoboard, jumpers M-M/M-H, headers, borneras, resistencias, estaño | 1 lote | 40 – 70 | 40 – 70 | Paruro |
-| | | | | **Subtotal Compra 1** | **S/ 229 – 375** | |
+| | | | | **Subtotal Compra 1** | **S/ 253 – 416** | |
 
 **Notas de compra que no son opcionales:**
 
@@ -216,11 +216,11 @@ Se prefiere el **INA219** sobre el ACS712: es I²C (no consume un ADC ya escaso)
 
 | Escenario | Total (S/) |
 |---|---|
-| **Mínimo viable** (Compra 1 + Compra 2, sin PCB fabricada ni calefactor) | **S/ 297 – 520** |
-| **Objetivo** (+ PCB fabricada, con bonus reclamado) | **S/ 387 – 650** |
-| **Completo** (+ calefactor y fuente de 5 A) | **S/ 432 – 730** |
+| **Mínimo viable** (Compra 1 + Compra 2, sin PCB fabricada ni calefactor) | **S/ 321 – 561** |
+| **Objetivo** (+ PCB fabricada, con bonus reclamado) | **S/ 411 – 691** |
+| **Completo** (+ calefactor y fuente de 5 A) | **S/ 456 – 771** |
 
-Dividido entre 3 integrantes: **S/ 100 – 245 por persona** en el escenario objetivo.
+Dividido entre 3 integrantes: **S/ 137 – 230 por persona** en el escenario objetivo.
 
 ### 4.6 Lo que explícitamente NO se compra
 
@@ -345,7 +345,7 @@ El docente confirmó esta jerarquía: *"El ventilador DC de 12 V con relé o MOS
 
 **Actuador principal — detalle de implementación**
 
-- **Elemento:** ventilador axial DC de 12 V (80–120 mm), conmutado por **módulo de relé optoacoplado de 1 canal** o por **MOSFET de nivel lógico** (IRLZ44N, compatible con 3.3 V).
+- **Elemento:** ventilador de PC de 12 V y 4 pines (120 mm). El ESP32 regula su potencia por el **cable PWM** (25 kHz, sin etapa de potencia para la velocidad) y lee las **RPM reales** por el **tacómetro** (D33, 2 pulsos por vuelta), que viajan en la telemetría como `ventilador_rpm`. El MOSFET IRLZ44N queda para el calefactor; el relé, como plan B.
 - **Comando:** el nodo se suscribe a `ccs/A403/command`; el backend publica ahí la decisión de la lógica activa. El ESP32 traduce `COOLING` / `PRE-COOLING` / `STANDBY` / `DISABLED` a estado del ventilador.
 - **Modulación:** PWM sobre el MOSFET para tres niveles de caudal según la magnitud de la carga térmica, en lugar de ON/OFF binario. Demuestra control proporcional.
 - **Protecciones obligatorias:** fuente de 12 V independiente (nunca alimentar el motor desde un GPIO), masa común, diodo flyback 1N4007 en paralelo con el motor, optoacoplador si se usa relé.

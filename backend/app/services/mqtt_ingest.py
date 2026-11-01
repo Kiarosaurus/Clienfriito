@@ -32,7 +32,7 @@ RETRY_SECONDS = 5
 
 # Node decision fields copied verbatim into node_state.
 NODE_STATE_FIELDS = (
-    "accion", "motivo", "alarma_co", "ventilador_pwm", "calefactor", "buzzer", "led",
+    "accion", "motivo", "alarma_co", "ventilador_pwm", "ventilador_rpm", "calefactor", "buzzer", "led",
     "bloqueo_s", "pendiente", "ciclo", "uptime_s", "co2_proxy", "manual", "manual_restante_s",
 )
 

@@ -52,6 +52,7 @@ export interface NodeState {
   motivo?: string
   alarma_co?: boolean
   ventilador_pwm?: number
+  ventilador_rpm?: number          // measured by the fan's tachometer (estimated in Wokwi)
   calefactor?: boolean
   buzzer?: boolean
   led?: string
