@@ -3,7 +3,10 @@ from datetime import datetime, timedelta
 from starlette.concurrency import run_in_threadpool
 from app.core.timeutils import to_local
 from app.models.sensor import SensorReading
+from app.services.climate_service import outdoor_temp
+from app.services.learning_controller import HORIZON_MIN, LOOKAHEAD_MIN, LearningController
 from app.services.predictive_service import calculate_cooling_demand
+from app.services.room_profile import get_metadata
 from app.services.strategy_comparison import compare_reading
 
 logger = logging.getLogger(__name__)
@@ -94,13 +97,80 @@ def get_room_context(db_sql, sensor_id: str, reading_timestamp: datetime) -> dic
     }
 
 
-async def save_reading(db, reading: SensorReading, cognitive_action: dict | None = None) -> str:
+def occupancy_forecast(db_sql, room_id: str, reading_timestamp: datetime, minutes: int) -> list[tuple[bool, float]]:
+    """Timetable for the next `minutes`, one entry per minute: (class?, expected people).
+
+    Built from the room's weekly schedules and reservations (both in LOCAL time); a
+    reservation takes precedence over the schedule, as in get_room_context.
+    """
+    from app.models.admin import Reservation, Schedule
+
+    start = to_local(reading_timestamp).replace(second=0, microsecond=0)
+    end = start + timedelta(minutes=minutes)
+    out: list[tuple[bool, float]] = [(False, 0.0)] * minutes
+    days = {(start + timedelta(days=k)).weekday(): start.date() + timedelta(days=k) for k in range((end.date() - start.date()).days + 1)}
+    for sch in db_sql.query(Schedule).filter(Schedule.room_id == room_id, Schedule.day_of_week.in_(list(days))).all():
+        day = days[sch.day_of_week]
+        s_dt, e_dt = datetime.combine(day, sch.start_time), datetime.combine(day, sch.end_time)
+        for m in range(max(0, int((s_dt - start).total_seconds() // 60)), min(minutes, int((e_dt - start).total_seconds() // 60))):
+            out[m] = (True, float(sch.expected_people))
+    for res in db_sql.query(Reservation).filter(
+        Reservation.room_id == room_id, Reservation.start_time < end, Reservation.end_time > start
+    ).all():
+        for m in range(max(0, int((res.start_time - start).total_seconds() // 60)), min(minutes, int((res.end_time - start).total_seconds() // 60))):
+            out[m] = (True, float(res.expected_occupancy))
+    return out
+
+
+# MQ-135 ADC level from which the firmware considers the room occupied (OCCUPANCY_ADC_THRESHOLD).
+NODE_OCCUPIED_ADC = 2200
+# One learning controller per room, kept in memory and persisted in Mongo each minute.
+_SHADOW: dict[str, LearningController] = {}
+
+
+async def shadow_learning_step(db, room_id: str, reading: SensorReading, db_sql=None) -> dict | None:
+    """Run the learning controller in shadow on a node reading.
+
+    The node's rules act; the controller learns from what the node did and returns
+    what it would do with the same reading. None when the reading is not a node
+    decision or lacks CO2 (needed to estimate the people in the room).
+    """
+    ns = reading.node_state or {}
+    if not ns.get("accion") or reading.co2_ppm is None:
+        return None
+    ctrl = _SHADOW.get(room_id)
+    if ctrl is None:
+        volume = get_metadata(room_id)["volume_m3"]
+        state = await db["learning_state"].find_one({"_id": room_id})
+        ctrl = LearningController.from_state(state, volume_m3=volume) if state else LearningController(volume_m3=volume)
+        _SHADOW[room_id] = ctrl
+    ts = reading.timestamp.replace(tzinfo=None)
+    adc = ns.get("co2_proxy")
+    occupied = adc >= NODE_OCCUPIED_ADC if adc is not None else ns.get("accion") != "DISABLED"
+    applied = ((ns.get("ventilador_pwm") or 0) / 255, 1.0 if ns.get("calefactor") else 0.0)
+    ts_s = (ts - datetime(1970, 1, 1)).total_seconds()
+    forecast = None
+    if db_sql is not None and ctrl.bucket is not None and int(ts_s // 60) != ctrl.bucket:
+        # A minute closes with this reading: the controller will replan, give it the timetable.
+        timetable = await run_in_threadpool(occupancy_forecast, db_sql, room_id, ts, LOOKAHEAD_MIN + HORIZON_MIN)
+        forecast = lambda: timetable  # noqa: E731
+    ctrl.step(ts_s, reading.temperature, float(reading.co2_ppm),
+              occupied, outdoor_temp(to_local(ts)), applied=applied, forecast=forecast)
+    if ctrl.closed_minute:
+        await db["learning_state"].replace_one({"_id": room_id}, {"_id": room_id, **ctrl.to_state()}, upsert=True)
+    return ctrl.summary()
+
+
+async def save_reading(db, reading: SensorReading, cognitive_action: dict | None = None,
+                       learning_action: dict | None = None) -> str:
     doc = reading.model_dump()
     # Always store naive UTC ISO string so MongoDB string comparison in $gte/$lte queries
     # works consistently regardless of whether the client sent a 'Z' or '+00:00' timestamp.
     doc["timestamp"] = reading.timestamp.replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%S.%f")
     if cognitive_action is not None:
         doc["cognitive_action"] = cognitive_action
+    if learning_action is not None:
+        doc["learning_action"] = learning_action
     # RF-30: record per reading whether the node and the AI agreed.
     doc["comparison"] = compare_reading(doc)
     logger.info(
@@ -138,7 +208,15 @@ async def process_reading(db, reading: SensorReading, db_sql=None) -> dict:
             reading.temperature, room_context, reading.timestamp, co2_ppm=reading.co2_ppm
         )
 
-    inserted_id = await save_reading(db, reading, cognitive_action=cognitive_action)
+    learning_action = None
+    room_id = room_context.get("room_id") if isinstance(room_context, dict) else None
+    if room_id and reading.node_state:
+        try:
+            learning_action = await shadow_learning_step(db, room_id, reading, db_sql=db_sql)
+        except Exception:   # the shadow controller must never block ingestion
+            logger.exception("Learning shadow step failed for room %s", room_id)
+
+    inserted_id = await save_reading(db, reading, cognitive_action=cognitive_action, learning_action=learning_action)
     logger.info(
         "Saved sensor_id=%s inserted_id=%s anomaly=%s room=%s ac=%s",
         reading.sensor_id, inserted_id, anomaly,

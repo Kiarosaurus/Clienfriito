@@ -63,3 +63,20 @@ def test_no_plan_means_no_expected_people(db):
     ctx = get_room_context(db, "s-A403", datetime(2026, 10, 27, 20, 0))  # Tuesday 15:00 local
     assert ctx["expected_people"] is None
     assert ctx["expected_source"] is None
+
+
+def test_occupancy_forecast_follows_schedule_and_reservations(db):
+    from app.services.data_service import occupancy_forecast
+
+    # 09:00 local: the 10:00–12:00 schedule starts in 60 min.
+    fc = occupancy_forecast(db, "A403", datetime(2026, 10, 26, 14, 0), 195)
+    assert fc[59] == (False, 0.0)
+    assert fc[60] == (True, 30.0)
+    assert fc[179] == (True, 30.0)     # 11:59
+    assert fc[180] == (False, 0.0)     # 12:00, the class is over
+    db.add(Reservation(room_id="A403", user_id=1, expected_occupancy=12,
+                       start_time=datetime(2026, 10, 26, 10, 30), end_time=datetime(2026, 10, 26, 11, 0)))
+    db.commit()
+    fc = occupancy_forecast(db, "A403", datetime(2026, 10, 26, 14, 0), 195)
+    assert fc[90] == (True, 12.0)      # 10:30, the reservation wins
+    assert fc[125] == (True, 30.0)     # 11:05, back to the schedule

@@ -52,6 +52,13 @@ class CognitiveActionOut(BaseModel):
     occupancy_gap: Optional[float] = None
 
 
+class LearningActionOut(BaseModel):
+    fan_pct: int
+    heater_pct: int
+    minutes_learned: int
+    ready: bool
+
+
 class SensorReadingOut(BaseModel):
     sensor_id: str
     temperature: float
@@ -64,6 +71,8 @@ class SensorReadingOut(BaseModel):
     cognitive_action: Optional[CognitiveActionOut] = None
     # Decision taken on the ESP32 node (readings ingested over MQTT); None for HTTP readings.
     node_state: Optional[dict] = None
+    # What the learning controller would do, in shadow (services/learning_controller.py).
+    learning_action: Optional[LearningActionOut] = None
 
 
 class EmergencyEntryOut(BaseModel):

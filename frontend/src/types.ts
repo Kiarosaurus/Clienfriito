@@ -76,4 +76,13 @@ export interface StoredReading {
   timestamp: string
   cognitive_action?: CognitiveAction | null
   node_state?: NodeState | null
+  /** Learning controller in shadow (backend/app/services/learning_controller.py). */
+  learning_action?: LearningAction | null
+}
+
+export interface LearningAction {
+  fan_pct: number
+  heater_pct: number
+  minutes_learned: number
+  ready: boolean
 }
