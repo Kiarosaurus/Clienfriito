@@ -58,6 +58,7 @@ Haz clic en las piezas del circuito mientras corre la simulación:
 - **Alarma de CO:** se evalúa en el nodo, sin depender de la red, e ignora la histéresis.
 - **Periodo:** mide y publica cada 1 s; el bloque `CICLO` del log sale cada 2 s.
 - **Sin red:** sigue controlando el aula y reintenta la conexión MQTT cada 5 s.
+- **Caída del nodo:** keepalive MQTT de 5 s. Si el nodo deja de responder, el broker publica el *Last Will* `offline` en unos 7,5 s y el dashboard lo muestra (RF-10).
 
 ## MQTT
 

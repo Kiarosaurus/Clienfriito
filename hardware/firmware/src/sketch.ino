@@ -20,6 +20,7 @@
  *   4) Telemetria por MQTT (incluye el motivo de cada decision), con Last Will
  *      ("offline") en el topico de estado y los umbrales retenidos en el de
  *      config. La consumen el backend (ccs/+/telemetry) y el monitor del nodo.
+ *      Keepalive de 5 s: si el nodo cae, el broker publica "offline" en ~7.5 s.
  *
  *  Formato del log serie:
  *     [  tiempo s] ETIQ  mensaje
@@ -615,6 +616,9 @@ void setup() {
   // El buffer por defecto de PubSubClient (256 B) no alcanza para la telemetria
   // con el motivo de la decision: los publish mas largos fallarian en silencio.
   mqtt.setBufferSize(768);
+  // RF-10: keepalive de 5 s. Si el nodo deja de responder, el broker publica el
+  // Last Will ("offline") tras 1.5 x keepalive, unos 7.5 s (< 10 s exigidos).
+  mqtt.setKeepAlive(5);
   clientId = String(CLIENT_ID_BASE) + "-" + String((uint32_t)esp_random(), HEX);
 
   intentarWiFi();

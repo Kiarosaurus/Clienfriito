@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
 
 from pydantic import ValidationError
 
@@ -35,7 +36,30 @@ NODE_STATE_FIELDS = (
     "bloqueo_s", "pendiente", "ciclo", "uptime_s", "co2_proxy",
 )
 
+# Node connectivity (RF-10), from ccs/<room>/status: "online" on connect and the
+# retained Last Will "offline" the broker publishes when the node stops answering.
+STATUS_TOPIC = "ccs/+/status"
+NODE_STATUS: dict[str, dict] = {}
+
 _task: asyncio.Task | None = None
+
+
+def status_update(topic: str, payload: bytes | str, retained: bool = False) -> dict | None:
+    """Record an `online` / `offline` message. Returns the stored entry, or None if ignored."""
+    parts = topic.split("/")
+    if len(parts) != 3 or parts[2] != "status" or not parts[1]:
+        return None
+    text = (payload.decode() if isinstance(payload, (bytes, bytearray)) else str(payload)).strip().lower()
+    if text not in ("online", "offline"):
+        return None
+    entry = {
+        "room_id": parts[1],
+        "online": text == "online",
+        # A retained message is replayed on (re)subscribe: its real time is unknown.
+        "since": None if retained else datetime.now(timezone.utc).isoformat(),
+    }
+    NODE_STATUS[parts[1]] = entry
+    return entry
 
 
 def telemetry_to_reading(topic: str, payload: bytes | str) -> SensorReading | None:
@@ -98,10 +122,18 @@ async def _run() -> None:
         try:
             async with aiomqtt.Client(MQTT_HOST, MQTT_PORT, identifier=client_id) as client:
                 await client.subscribe(MQTT_TOPIC)
-                logger.info("MQTT ingest connected to %s:%d, subscribed to %s", MQTT_HOST, MQTT_PORT, MQTT_TOPIC)
+                await client.subscribe(STATUS_TOPIC)
+                logger.info("MQTT ingest connected to %s:%d, subscribed to %s and %s",
+                            MQTT_HOST, MQTT_PORT, MQTT_TOPIC, STATUS_TOPIC)
                 async for message in client.messages:
                     try:
-                        await _ingest(str(message.topic), message.payload)
+                        topic = str(message.topic)
+                        if topic.endswith("/status"):
+                            entry = status_update(topic, message.payload, retained=bool(message.retain))
+                            if entry:
+                                logger.info("[NODE] %s %s", entry["room_id"], "online" if entry["online"] else "offline")
+                            continue
+                        await _ingest(topic, message.payload)
                     except Exception:  # one bad message must not stop the subscriber
                         logger.exception("MQTT: could not ingest message on %s", message.topic)
         except aiomqtt.MqttError as exc:

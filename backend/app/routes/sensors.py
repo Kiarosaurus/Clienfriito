@@ -380,6 +380,19 @@ class SensorControlIn(BaseModel):
     control_enabled: bool
 
 
+class NodeStatusOut(BaseModel):
+    room_id: str
+    online: bool
+    since: Optional[str] = None   # UTC ISO; None when only the retained message is known
+
+
+@router.get("/nodes", response_model=List[NodeStatusOut])
+async def node_status(current_user: User = Depends(get_current_user)):
+    """Connectivity of each MQTT node (RF-10), from its status topic and Last Will."""
+    from app.services.mqtt_ingest import NODE_STATUS
+    return list(NODE_STATUS.values())
+
+
 # ANTES: @router.put("/{sensor_id}/control")
 # AHORA: se agregan response_model=SensorControlOut y responses={401,403,404}
 # — es el endpoint de la Action 12 (Encender/apagar sensor) de la guía.

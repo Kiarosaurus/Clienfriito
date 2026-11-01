@@ -50,3 +50,22 @@ def test_missing_optional_fields_use_defaults():
     assert r.co_ppm == 0.0
     assert r.is_simulated is False
     assert r.node_state == {}
+
+
+# ── Node connectivity (RF-10) ────────────────────────────────────────────────
+from app.services.mqtt_ingest import NODE_STATUS, status_update  # noqa: E402
+
+
+def test_status_online_and_last_will_offline():
+    NODE_STATUS.clear()
+    assert status_update("ccs/A403/status", b"online")["online"] is True
+    entry = status_update("ccs/A403/status", b"offline")
+    assert entry["online"] is False and entry["since"] is not None
+    assert NODE_STATUS["A403"]["online"] is False
+
+
+def test_retained_status_has_unknown_time_and_bad_messages_are_ignored():
+    NODE_STATUS.clear()
+    assert status_update("ccs/A403/status", b"offline", retained=True)["since"] is None
+    assert status_update("ccs/A403/status", b"rebooting") is None
+    assert status_update("ccs/A403/telemetry", b"online") is None
