@@ -92,6 +92,10 @@ ROOM_LOCATION = {
 }
 ROOM_CAP = {r[0]: r[2] for r in ROOMS}
 ROOM_TARGET = {r[0]: r[3] for r in ROOMS}
+# Setpoint registered for the LIVE room, when it differs from the one used to generate the
+# history (campus A/C held near 20 °C, which the ML training data reflects). A403 runs the
+# ESP32 node with a 24 °C setpoint: registering the same value makes node vs AI comparable.
+LIVE_TARGET = {"A403": 24.0}
 
 def sensor_id(room_id: str) -> str:
     return f"s-{room_id}"
@@ -307,7 +311,7 @@ def insert_postgres() -> None:
 
         for rid, name, cap, target in ROOMS:
             building, floor = ROOM_LOCATION[rid]
-            s.merge(Room(id=rid, name=name, max_capacity=cap, target_temp=target,
+            s.merge(Room(id=rid, name=name, max_capacity=cap, target_temp=LIVE_TARGET.get(rid, target),
                          control_policy="auto", building=building, floor=floor))
             s.merge(SensorDevice(id=sensor_id(rid), room_id=rid,
                                  is_active=True, control_enabled=True))
