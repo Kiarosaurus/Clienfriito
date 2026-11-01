@@ -24,7 +24,7 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or "admin"
 # JWT
 SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_hex(32)
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
 
 # Deployment timezone offset from UTC (whole hours), used to phase-align the diurnal
 # temperature drift so its peak lands in the local afternoon. Default -5 = America/Lima
