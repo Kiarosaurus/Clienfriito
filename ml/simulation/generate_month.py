@@ -10,17 +10,16 @@ A `strategy_simulation_meta` document records the scenario (equipment, step, per
 timetable) so the dashboard can say what it is showing.
 
 Everything is tagged as simulated (`is_simulated`, `demo_seed`) and can be removed with:
-    db.sensor_readings.deleteMany({sensor_id: "s-A403", demo_seed: true})
-    db.strategy_simulation.deleteMany({room_id: "A403"})
-    db.strategy_simulation_meta.deleteOne({_id: "A403"})
+    db.sensor_readings.deleteMany({sensor_id: "s-A101", demo_seed: true})
+    db.strategy_simulation.deleteMany({room_id: "A101"})
+    db.strategy_simulation_meta.deleteOne({_id: "A101"})
 
-Occupancy: the room's schedules from the database plus a typical weekly university
-timetable (each course in the same slot every week, Monday–Saturday), with attendance
-varying 60–100 % of the expected group. Outdoor temperature: the backend's Lima model
+Occupancy: the room's weekly classes from the database (Monday–Saturday, the same slot
+every week), with attendance varying 60–100 % of the expected group. Outdoor temperature: the backend's Lima model
 (app.services.climate_service) plus a day-to-day offset.
 
 Usage (inside the backend container, with this folder copied next to it):
-    PYTHONPATH=/app python generate_month.py --room A403 --days 30
+    PYTHONPATH=/app python generate_month.py --room A101 --days 30 --every 4   # one row per 2 min
 """
 from __future__ import annotations
 
@@ -37,22 +36,9 @@ from app.services.climate_service import outdoor_temp
 STEP = cs.STEP_S
 STEPS_PER_DAY = 24 * 3600 // STEP
 
-# Typical weekly timetable for a 46-seat classroom: (weekday 0=Mon, start, end, group size).
-TIMETABLE = [
-    (0, 7, 9, 38), (0, 9, 11, 42), (0, 14, 16, 30), (0, 19, 21, 25),
-    (1, 7, 9, 40), (1, 11, 13, 35), (1, 16, 18, 44), (1, 18, 20, 28),
-    (2, 7, 9, 38), (2, 9, 11, 42), (2, 14, 16, 30), (2, 20, 22, 22),
-    (3, 7, 9, 40), (3, 11, 13, 35), (3, 16, 18, 44), (3, 18, 20, 28),
-    (4, 9, 11, 33), (4, 14, 16, 26),
-    (5, 8, 10, 30), (5, 10, 12, 30),
-]
-
-
-def timetable(db_url_rows: list[tuple[int, time, time, int]]) -> list[tuple[int, float, float, int]]:
-    rows = [(d, float(s), float(e), n) for d, s, e, n in TIMETABLE]
-    for d, s, e, n in db_url_rows:                      # the room's real schedules
-        rows.append((d, s.hour + s.minute / 60, e.hour + e.minute / 60, n))
-    return rows
+def timetable(db_rows: list[tuple[int, time, time, int]]) -> list[tuple[int, float, float, int]]:
+    """The room's weekly classes as (weekday, start hour, end hour, group size)."""
+    return [(d, s.hour + s.minute / 60, e.hour + e.minute / 60, n) for d, s, e, n in db_rows]
 
 
 def room_schedules(room_id: str) -> list[tuple[int, time, time, int]]:
@@ -119,9 +105,11 @@ def node_state(fan: float, heat: float, occupied: bool, t: float, rng: np.random
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--room", default="A403")
+    parser.add_argument("--room", required=True)
     parser.add_argument("--days", type=int, default=30)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--every", type=int, default=1,
+                        help="write one row every N simulation steps (the simulation itself keeps its step)")
     args = parser.parse_args()
     room_id, sensor_id = args.room, f"s-{args.room}"
 
@@ -132,6 +120,8 @@ def main() -> None:
     start_local = datetime.combine((now_local - timedelta(days=args.days)).date(), time(0, 0))
     n = int((now_local - start_local).total_seconds() // STEP)
     rows = timetable(room_schedules(room_id))
+    if not rows:
+        raise SystemExit(f"{room_id} has no classes in the database: run ml/seed-data/generate_dataset.py first")
     sc = build_scenario(start_local, n, room, rows, args.seed)
 
     warm_s = cs.WARMUP_DAYS * 24 * 3600
@@ -146,7 +136,7 @@ def main() -> None:
 
     rng = np.random.default_rng(args.seed + 1)
     readings, sims = [], []
-    for i in range(n):
+    for i in range(0, n, args.every):
         ts_utc = start_local - offset + timedelta(seconds=i * STEP)
         occupied = bool(sc["people"][i] > 0)
         hum = float(np.clip(52 + 0.25 * sc["people"][i] + rng.normal(0, 1.5), 35, 75))
@@ -182,10 +172,10 @@ def main() -> None:
         "generated_at": now_utc,
         "start": start_local - offset,
         "end": start_local - offset + timedelta(seconds=(n - 1) * STEP),
-        "step_s": STEP,
+        "step_s": STEP * args.every,
         "warmup_days": cs.WARMUP_DAYS,
         "equipment": {"label": act.label, "fan_max_m3s": act.fan_max_m3s, "fan_max_w": act.fan_max_w, "heater_w": act.heater_w},
-        "timetable": "Horario universitario típico (lunes a sábado) más los horarios del aula en la base",
+        "timetable": "Horario de clases del aula (lunes a sábado, base de datos)",
         "seed": args.seed,
     }, upsert=True)
 

@@ -76,26 +76,15 @@ STEP_MIN = 10                    # reading cadence during a session
 WARMUP_MIN = 30                  # pre-class ticks (room still empty)
 
 # ── Rooms ─────────────────────────────────────────────────────────────────────
-# id, name, max_capacity, target_temp
-ROOMS = [
-    ("A403",  "A403 Aula Multipropósito",                              46, 20.0),
-    ("M601",  "M601 Laboratorio Multipropósito",                       36, 20.0),
-    ("M604",  "M604 Laboratorio Multipropósito",                       36, 20.0),
-    ("M1001", "M1001 Laboratorio Multipropósito",     46, 20.0),
-    ("M802",  "M802 Laboratorio Multipropósito",                       36, 20.0),
-    ("M602",  "M602 Laboratorio Multipropósito",                       36, 20.0),
-]
+# Building A: two classrooms per floor (A101 … A602). id, name, max_capacity, target_temp
+_CAPACITY = {1: 40, 2: 40, 3: 36, 4: 36, 5: 46, 6: 46}
+ROOMS = [(f"A{f}0{n}", f"A{f}0{n} Aula", _CAPACITY[f], 20.0) for f in range(1, 7) for n in (1, 2)]
 # Location (building, floor) shown and filtered in the dashboard.
-ROOM_LOCATION = {
-    "A403": ("A", 4), "M601": ("M", 6), "M604": ("M", 6),
-    "M1001": ("M", 10), "M802": ("M", 8), "M602": ("M", 6),
-}
+ROOM_LOCATION = {r[0]: ("A", int(r[0][1])) for r in ROOMS}
 ROOM_CAP = {r[0]: r[2] for r in ROOMS}
 ROOM_TARGET = {r[0]: r[3] for r in ROOMS}
-# Setpoint registered for the LIVE room, when it differs from the one used to generate the
-# history (campus A/C held near 20 °C, which the ML training data reflects). A403 runs the
-# ESP32 node with a 24 °C setpoint: registering the same value makes node vs AI comparable.
-LIVE_TARGET = {"A403": 24.0}
+# Rooms of earlier seeds: --wipe removes them with their readings, schedules and reservations.
+RETIRED_ROOMS = ["M601", "M602", "M604", "M802", "M1001", "A403"]
 
 def sensor_id(room_id: str) -> str:
     return f"s-{room_id}"
@@ -103,34 +92,49 @@ def sensor_id(room_id: str) -> str:
 # ── Weekly schedule ───────────────────────────────────────────────────────────
 # room_id, weekday(0=Mon), start_h, end_h, reservation(expected_people),
 # attendance floor at window START, attendance floor at window END (current).
-SCHEDULES = [
-    ("A403",  0, 17, 18, 36, 18, 11),   # Mon 5-6pm
-    ("M802",  1,  9, 11, 36, 13,  6),   # Tue 9-11am
-    ("M601",  1, 16, 18, 36, 16, 11),   # Tue 4-6pm
-    ("M602",  1, 20, 22, 36, 10,  5),   # Tue 8-10pm
-    ("M1001", 3, 19, 22, 28,  7,  3),   # Thu 7-10pm
-    ("M604",  4, 16, 18, 36, 15, 11),   # Fri 4-6pm
-    ("M1001", 4, 20, 22, 28, 10,  5),   # Fri 8-10pm
-]
+# Classes run Monday–Saturday between 7:00 and 22:00, last 1 or 2 hours and never
+# overlap in a room; every room has at least 2 classes a day.
+DAY_START, DAY_END = 7, 22
+CLASSES_PER_DAY = (2, 4)
+
+
+def _room_week(room_id: str, cap: int) -> list[tuple]:
+    """A reproducible week of classes for one room."""
+    r = random.Random(f"schedule:{room_id}:{ATTENDANCE_SEED}")
+    out = []
+    for day in range(6):
+        wanted = r.randint(*CLASSES_PER_DAY)
+        taken: list[tuple[int, int]] = []
+        tries = 0
+        while len(taken) < wanted and tries < 200:
+            tries += 1
+            length = r.choice([1, 2, 2])
+            start = r.randint(DAY_START, DAY_END - length)
+            if any(start < b and a < start + length for a, b in taken):
+                continue
+            taken.append((start, start + length))
+        for a, b in sorted(taken):
+            expected = r.randint(int(cap * 0.5), cap)
+            f_start = r.randint(int(expected * 0.5), int(expected * 0.85))
+            f_end = max(3, f_start - r.randint(2, 8))
+            out.append((room_id, day, a, b, expected, f_start, f_end))
+    return out
+
+
+SCHEDULES = [row for rid, _, cap, _ in ROOMS for row in _room_week(rid, cap)]
+assert all(len([s for s in SCHEDULES if s[0] == rid and s[1] == d]) >= 2
+           for rid, *_ in ROOMS for d in range(6))
 
 # ── Special high-attendance dates: (room_id, "YYYY-MM-DD") → exact people ──────
-SPECIAL = {
-    ("M1001", "2026-05-21"): 21,
-    ("M1001", "2026-05-28"): 21,
-    ("M1001", "2026-05-29"): 33,
-    ("M1001", "2026-06-11"): 20,
-    ("M1001", "2026-06-12"): 32,
-    ("M802",  "2026-06-23"): 29,
-    ("M1001", "2026-06-25"): 20,
-    ("M1001", "2026-06-26"): 33,
-}
+SPECIAL: dict[tuple[str, str], int] = {}
 
-# ── Future reservations (after last sample): room_id, date, start_h, end_h, expected
+# ── Upcoming reservations: room_id, date, start_h, end_h, expected ─────────────
+# A few one-off bookings in the week shown by the dashboard, in free slots.
 FUTURE_RESERVATIONS = [
-    ("A403",  "2026-07-06", 17, 18, 32),   # Mon
-    ("M601",  "2026-07-06", 16, 18, 32),   # Mon
-    ("M602",  "2026-07-07", 20, 22, 20),   # Tue
-    ("M802",  "2026-07-08",  9, 11, 20),   # Wed
+    ("A101", "2026-11-03", 20, 22, 25),
+    ("A302", "2026-11-04", 18, 20, 30),
+    ("A501", "2026-11-06", 12, 14, 40),
+    ("A602", "2026-11-07", 15, 17, 20),
 ]
 
 
@@ -263,14 +267,17 @@ def insert_mongo(docs: list[dict], wipe: bool) -> None:
     uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
     client = MongoClient(uri, serverSelectionTimeoutMS=5000)
     col = client["climate_db"]["sensor_readings"]
+    seed_ids = [sensor_id(r[0]) for r in ROOMS]
     if wipe:
-        deleted = col.delete_many({}).deleted_count
-        print(f"  Mongo: wiped {deleted} existing readings.")
+        # Seed readings only (plus retired rooms): the month-long strategy simulation
+        # (demo_seed rows from ml/simulation) stays.
+        retired = col.delete_many({"sensor_id": {"$in": [sensor_id(r) for r in RETIRED_ROOMS]}}).deleted_count
+        deleted = col.delete_many({"sensor_id": {"$in": seed_ids}, "demo_seed": {"$ne": True}}).deleted_count
+        print(f"  Mongo: wiped {deleted} seed readings and {retired} of retired rooms.")
     else:
         # Idempotency guard: a second run without --wipe would silently duplicate
         # every reading, corrupting telemetry and the ROI report.
-        seed_ids = [sensor_id(r[0]) for r in ROOMS]
-        existing = col.count_documents({"sensor_id": {"$in": seed_ids}})
+        existing = col.count_documents({"sensor_id": {"$in": seed_ids}, "demo_seed": {"$ne": True}})
         if existing:
             print(
                 f"  Mongo: {existing} seed readings already present — "
@@ -311,10 +318,16 @@ def insert_postgres() -> None:
 
         for rid, name, cap, target in ROOMS:
             building, floor = ROOM_LOCATION[rid]
-            s.merge(Room(id=rid, name=name, max_capacity=cap, target_temp=LIVE_TARGET.get(rid, target),
+            s.merge(Room(id=rid, name=name, max_capacity=cap, target_temp=target,
                          control_policy="auto", building=building, floor=floor))
             s.merge(SensorDevice(id=sensor_id(rid), room_id=rid,
                                  is_active=True, control_enabled=True))
+
+        # Rooms from earlier seeds: out, with everything that hangs from them.
+        s.query(Schedule).filter(Schedule.room_id.in_(RETIRED_ROOMS)).delete(synchronize_session=False)
+        s.query(Reservation).filter(Reservation.room_id.in_(RETIRED_ROOMS)).delete(synchronize_session=False)
+        s.query(SensorDevice).filter(SensorDevice.room_id.in_(RETIRED_ROOMS)).delete(synchronize_session=False)
+        s.query(Room).filter(Room.id.in_(RETIRED_ROOMS)).delete(synchronize_session=False)
 
         # Weekly schedules — clear this window's rooms first to stay idempotent
         room_ids = [r[0] for r in ROOMS]
