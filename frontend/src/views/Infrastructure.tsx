@@ -1,25 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { Plus, Pencil, RefreshCw, AlertTriangle, Search } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Plus, Pencil, RefreshCw, AlertTriangle, Trash2, ArrowRight } from 'lucide-react'
 import api, { getApiErrorDetail } from '../api/client'
 import type { StoredReading } from '../types'
 import { NUM_INPUT_MODS } from '../utils/formStyles'
-import { compareRooms, locationLabel, roomOptions, shortName, type Room } from '../utils/rooms'
+import { compareRooms, locationLabel, shortName, type Room } from '../utils/rooms'
 import { RoomFilters, useRoomFilter } from '../components/RoomFilters'
-import SearchableSelect from '../components/SearchableSelect'
-import {
-  Card, Chip, Dialog, PageHeader, Pagination, Tabs, Toast, LIVE_SECONDS,
-  parseUtc, timeAgo, usePage, useToast,
-} from '../components/ui'
+import NodeDiagram from '../components/NodeDiagram'
+import { Dialog, Toast, useToast } from '../components/ui'
 
-// Physical configuration: rooms and their sensors (one page, one question: "what is
-// installed and where?"). Registering a room + its sensor s-<room> is what lets a new
-// node join without code changes (RNF-28/29). Live device switches stay in the room view,
-// where a collaborator with an active reservation may use them (RF-37).
+// Physical configuration: "what is installed and where?". Rooms are the entry point;
+// each room holds its sensors, registered and switched on or off from here. A sensor
+// always belongs to a room. Registering a room + its sensor s-<room> is what lets a
+// new node join without code changes (RNF-28/29).
 
 interface Device { sensor_id: string; room_id: string | null; room_name: string | null; is_active: boolean; control_enabled: boolean }
 interface Latest { sensor_id?: string | null; room_id?: string | null; reading: StoredReading | null }
-type View = 'aulas' | 'sensores'
 
 interface RoomForm { id: string; name: string; building: string; floor: string; max_capacity: string; target_temp: string }
 const EMPTY_ROOM: RoomForm = { id: '', name: '', building: '', floor: '', max_capacity: '30', target_temp: '24' }
@@ -31,48 +27,40 @@ function friendly(err: unknown, fallback: string) {
   return getApiErrorDetail(err) ?? fallback
 }
 
-function LastReading({ reading, now }: { reading: StoredReading | null | undefined; now: number }) {
-  if (!reading) return <span className="text-xs text-slate-500">Nunca</span>
-  const live = (now - parseUtc(reading.timestamp).getTime()) / 1000 < LIVE_SECONDS
+/** On/off switch for a sensor. */
+function Switch({ checked, disabled, onChange, label }: { checked: boolean; disabled?: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-      {live && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />}
-      {live ? 'En vivo' : timeAgo(reading.timestamp, now)}
-    </span>
+    <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)}
+      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50 ${checked ? 'bg-blue-600' : 'bg-slate-700'}`}>
+      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${checked ? 'left-[18px]' : 'left-0.5'}`} />
+    </button>
   )
 }
 
 export default function Infrastructure() {
-  const [params, setParams] = useSearchParams()
-  const view = (params.get('vista') as View) || 'aulas'
-  const setView = (v: View) => setParams(v === 'aulas' ? {} : { vista: v }, { replace: true })
-
   const [rooms, setRooms] = useState<Room[]>([])
   const [devices, setDevices] = useState<Device[]>([])
-  const [latestRoom, setLatestRoom] = useState<Record<string, StoredReading | null>>({})
-  const [latestSensor, setLatestSensor] = useState<Record<string, StoredReading | null>>({})
+  const [latest, setLatest] = useState<Record<string, StoredReading | null>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [now, setNow] = useState(Date.now())
+  const [selected, setSelected] = useState('')
   const { toast, notify, clear } = useToast()
 
   const [roomDialog, setRoomDialog] = useState<{ original: Room | null } | null>(null)
   const [roomToDelete, setRoomToDelete] = useState<Room | null>(null)
-  const [sensorDialog, setSensorDialog] = useState<{ original: Device | null } | null>(null)
+  const [sensorDialog, setSensorDialog] = useState<{ room: Room; original: Device | null } | null>(null)
   const [sensorToDelete, setSensorToDelete] = useState<Device | null>(null)
+  const [switching, setSwitching] = useState<string | null>(null)
 
   const load = useCallback(() => Promise.all([
     api.get<Room[]>('/admin/rooms'),
     api.get<Device[]>('/admin/devices'),
-    api.get<Latest[]>('/sensors/latest').catch(() => ({ data: [] as Latest[] })),
     api.get<Latest[]>('/sensors/latest?by=sensor').catch(() => ({ data: [] as Latest[] })),
   ])
-    .then(([r, d, lr, ls]) => {
-      setRooms(r.data ?? [])
+    .then(([r, d, ls]) => {
+      setRooms([...(r.data ?? [])].sort(compareRooms))
       setDevices(d.data ?? [])
-      setLatestRoom(Object.fromEntries((lr.data ?? []).map(x => [x.room_id ?? '', x.reading])))
-      setLatestSensor(Object.fromEntries((ls.data ?? []).map(x => [x.sensor_id ?? '', x.reading])))
-      setNow(Date.now())
+      setLatest(Object.fromEntries((ls.data ?? []).map(x => [x.sensor_id ?? '', x.reading])))
       setError(null)
     })
     .catch(err => setError(getApiErrorDetail(err) ?? 'No se pudo cargar la infraestructura.'))
@@ -80,58 +68,125 @@ export default function Infrastructure() {
 
   useEffect(() => { load() }, [load])
 
-  const roomById = useMemo(() => Object.fromEntries(rooms.map(r => [r.id, r])), [rooms])
+  const filter = useRoomFilter(rooms)
+  const room = filter.filtered.find(r => r.id === selected) ?? filter.filtered[0]
+  const sensorsOf = useCallback((id: string) => devices.filter(d => d.room_id === id), [devices])
+  const sensors = useMemo(() => (room ? sensorsOf(room.id) : []), [room, sensorsOf])
+
+  async function toggle(d: Device, on: boolean) {
+    setSwitching(d.sensor_id)
+    try {
+      // Switching on enables everything the node needs: its readings are stored and
+      // the learning controller evaluates them. Switching off keeps the rest as it was.
+      await api.put(`/sensors/${encodeURIComponent(d.sensor_id)}/control`, { is_active: on, control_enabled: on ? true : d.control_enabled })
+      setDevices(ds => ds.map(x => x.sensor_id === d.sensor_id ? { ...x, is_active: on, control_enabled: on ? true : x.control_enabled } : x))
+      notify('ok', on ? `Nodo ${d.sensor_id} activado: sus lecturas se guardan.` : `Nodo ${d.sensor_id} desactivado: sus lecturas se descartan.`)
+    } catch (e) {
+      notify('error', friendly(e, 'No se pudo cambiar el nodo.'))
+    } finally { setSwitching(null) }
+  }
 
   return (
-    <div className="space-y-4">
-      <PageHeader title="Infraestructura" subtitle="Aulas y sensores instalados. Para sumar un nodo nuevo, registra su aula y su sensor.">
-        {view === 'aulas'
-          ? <button className="btn btn-primary" onClick={() => setRoomDialog({ original: null })}><Plus size={16} /> Nueva aula</button>
-          : <button className="btn btn-primary" onClick={() => setSensorDialog({ original: null })} disabled={rooms.length === 0}><Plus size={16} /> Nuevo sensor</button>}
-      </PageHeader>
+    <div className="flex flex-col gap-4 lg:h-full lg:min-h-0">
+      <div className="flex shrink-0 flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="page-title">Infraestructura</h1>
+          <p className="mt-1 text-sm text-slate-400">Aulas y el nodo de cada una. Para sumar un nodo, registra el aula y luego su nodo.</p>
+        </div>
+        <button className="btn btn-primary" onClick={() => setRoomDialog({ original: null })}><Plus size={16} /> Nueva aula</button>
+      </div>
+      {error && <p className="text-sm text-red-300">{error}</p>}
 
-      {error && <Card className="border-red-500/40 text-sm text-red-300">{error}</Card>}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[17rem_minmax(0,1fr)]">
+        {/* Rooms */}
+        <aside className="surface flex min-h-0 flex-col overflow-hidden">
+          <div className="border-b border-slate-800 p-3 [&_.field]:w-full [&>div]:flex-col [&>div]:items-stretch">
+            <RoomFilters rooms={rooms} state={filter.state} onChange={filter.setState} />
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {loading && <p className="flex items-center gap-2 px-4 py-6 text-sm text-slate-400"><RefreshCw size={14} className="animate-spin" /> Cargando…</p>}
+            {filter.filtered.map(r => {
+              const ss = sensorsOf(r.id)
+              const off = ss.filter(d => !d.is_active).length
+              return (
+                <button key={r.id} type="button" onClick={() => setSelected(r.id)} aria-pressed={room?.id === r.id}
+                  className={`flex w-full flex-col gap-0.5 border-b border-slate-800 px-4 py-2.5 text-left ${room?.id === r.id ? 'bg-slate-800' : 'hover:bg-slate-800/50'}`}>
+                  <span className="text-sm font-semibold text-white">{r.id}</span>
+                  <span className="flex items-center gap-1.5 text-xs text-slate-500">
+                    {locationLabel(r)}
+                    {ss.length === 0 && <><span>·</span><span className="h-1.5 w-1.5 rounded-full bg-amber-400" />sin nodo</>}
+                    {ss.length > 0 && off > 0 && <><span>·</span>{off === ss.length ? 'desactivado' : `${off} desactivado${off === 1 ? '' : 's'}`}</>}
+                  </span>
+                </button>
+              )
+            })}
+            {!loading && filter.filtered.length === 0 && (
+              <p className="px-4 py-6 text-center text-sm text-slate-500">{rooms.length ? 'Ningún aula coincide con los filtros.' : 'Todavía no hay aulas. Crea la primera con "Nueva aula".'}</p>
+            )}
+          </div>
+        </aside>
 
-      <Tabs<View>
-        value={view}
-        onChange={setView}
-        items={[
-          { value: 'aulas', label: `Aulas · ${rooms.length}` },
-          { value: 'sensores', label: `Sensores · ${devices.length}` },
-        ]}
-      />
+        {/* The chosen room and its sensors */}
+        <section className="surface flex min-h-[24rem] flex-col overflow-hidden">
+          {!room ? <p className="m-auto text-sm text-slate-500">Elige un aula.</p> : <>
+            <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-800 px-5 py-4">
+              <div className="min-w-0">
+                <h2 className="text-xl font-semibold text-white">{room.id} <span className="text-sm font-normal text-slate-400">{shortName(room)}</span></h2>
+                <p className="mt-0.5 text-sm text-slate-400">{locationLabel(room)} · {room.max_capacity} personas</p>
+              </div>
+              <div className="ml-auto flex items-center gap-2">
+                <Link to={`/room/${room.id}`} className="btn btn-ghost">Ver aula <ArrowRight size={14} /></Link>
+                <button className="btn btn-secondary" onClick={() => setRoomDialog({ original: room })}><Pencil size={14} /> Editar aula</button>
+              </div>
+            </header>
 
-      {loading ? (
-        <p className="flex items-center gap-2 py-8 text-sm text-slate-400"><RefreshCw size={14} className="animate-spin" /> Cargando…</p>
-      ) : view === 'aulas' ? (
-        <RoomsTab rooms={rooms} devices={devices} latest={latestRoom} now={now} onEdit={r => setRoomDialog({ original: r })} />
-      ) : (
-        <SensorsTab devices={devices} rooms={roomById} latest={latestSensor} now={now} onEdit={d => setSensorDialog({ original: d })} />
-      )}
+            <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-5 py-4">
+              {sensors.length === 0 ? (
+                <div className="surface-inset m-auto max-w-md px-6 py-8 text-center">
+                  <p className="text-sm text-slate-200">Esta aula todavía no tiene nodo.</p>
+                  <p className="mt-1 text-xs text-slate-500">Registra el de su ESP32: el código es s-{room.id}. Empieza desactivado; actívalo cuando esté instalado.</p>
+                  <button className="btn btn-primary mt-4" onClick={() => setSensorDialog({ room, original: null })}><Plus size={14} /> Registrar nodo</button>
+                </div>
+              ) : sensors.map(d => (
+                <NodeDiagram key={d.sensor_id} reading={latest[d.sensor_id]} active={d.is_active} header={<>
+                  <span className="text-sm font-semibold text-white">Nodo <span className="font-mono">{d.sensor_id}</span></span>
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <Switch checked={d.is_active} disabled={switching === d.sensor_id} onChange={v => toggle(d, v)} label={`Activar ${d.sensor_id}`} />
+                    {d.is_active ? 'Activo' : 'Desactivado: sus lecturas se descartan'}
+                  </label>
+                  <span className="flex items-center">
+                    <button className="btn btn-ghost px-2" onClick={() => setSensorDialog({ room, original: d })} aria-label={`Cambiar código de ${d.sensor_id}`} title="Cambiar código"><Pencil size={14} /></button>
+                    <button className="btn btn-ghost px-2 text-slate-400 hover:text-red-300" onClick={() => setSensorToDelete(d)} aria-label={`Eliminar ${d.sensor_id}`} title="Eliminar nodo"><Trash2 size={14} /></button>
+                  </span>
+                </>} />
+              ))}
+            </div>
+          </>}
+        </section>
+      </div>
 
       {roomDialog && (
         <RoomDialog
           original={roomDialog.original}
           onClose={() => setRoomDialog(null)}
           onDelete={r => { setRoomDialog(null); setRoomToDelete(r) }}
-          onSaved={msg => { setRoomDialog(null); notify('ok', msg); load() }}
+          onSaved={(msg, id) => { setRoomDialog(null); notify('ok', msg); setSelected(id); load() }}
         />
       )}
       {roomToDelete && (
         <DeleteRoomDialog
           room={roomToDelete}
           onClose={() => setRoomToDelete(null)}
-          onDeleted={() => { notify('ok', `Aula ${roomToDelete.id} eliminada.`); setRoomToDelete(null); load() }}
+          onDeleted={() => { notify('ok', `Aula ${roomToDelete.id} eliminada.`); setRoomToDelete(null); setSelected(''); load() }}
           onError={msg => notify('error', msg)}
         />
       )}
       {sensorDialog && (
         <SensorDialog
+          room={sensorDialog.room}
           original={sensorDialog.original}
-          rooms={rooms}
           devices={devices}
           onClose={() => setSensorDialog(null)}
-          onDelete={d => { setSensorDialog(null); setSensorToDelete(d) }}
           onSaved={msg => { setSensorDialog(null); notify('ok', msg); load() }}
         />
       )}
@@ -139,7 +194,7 @@ export default function Infrastructure() {
         <DeleteSensorDialog
           device={sensorToDelete}
           onClose={() => setSensorToDelete(null)}
-          onDeleted={() => { notify('ok', `Sensor ${sensorToDelete.sensor_id} eliminado.`); setSensorToDelete(null); load() }}
+          onDeleted={() => { notify('ok', `Nodo ${sensorToDelete.sensor_id} eliminado.`); setSensorToDelete(null); load() }}
           onError={msg => notify('error', msg)}
         />
       )}
@@ -148,68 +203,12 @@ export default function Infrastructure() {
   )
 }
 
-// ── Aulas ─────────────────────────────────────────────────────────────────────
-function RoomsTab({ rooms, devices, latest, now, onEdit }: {
-  rooms: Room[]; devices: Device[]; latest: Record<string, StoredReading | null>; now: number; onEdit: (r: Room) => void
-}) {
-  const filter = useRoomFilter(rooms)
-  const sorted = [...filter.filtered].sort(compareRooms)
-  const page = usePage(sorted, 15)
-  const sensorsOf = (id: string) => devices.filter(d => d.room_id === id)
-
-  return (
-    <Card>
-      <div className="mb-3">
-        <RoomFilters rooms={rooms} state={filter.state} onChange={filter.setState}>
-          <span className="ml-auto text-xs text-slate-400">{sorted.length} de {rooms.length} aulas</span>
-        </RoomFilters>
-      </div>
-      {sorted.length === 0 ? (
-        <p className="py-4 text-sm text-slate-400">{rooms.length ? 'Ningún aula coincide con los filtros.' : 'Todavía no hay aulas. Crea la primera con "Nueva aula".'}</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="table-head">
-                {['Aula', 'Ubicación', 'Capacidad', 'Temp. objetivo', 'Sensores', 'Última lectura', ''].map(h => <th key={h} className="py-2 pr-4 font-normal">{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {page.rows.map(r => {
-                const sensors = sensorsOf(r.id)
-                return (
-                  <tr key={r.id} className="table-row cursor-pointer" onClick={() => onEdit(r)}>
-                    <td className="py-2 pr-4">
-                      <Link to={`/room/${r.id}`} onClick={e => e.stopPropagation()} className="font-medium text-slate-100 hover:underline">{r.id}</Link>
-                      <span className="ml-2 text-slate-400">{shortName(r)}</span>
-                    </td>
-                    <td className="py-2 pr-4 text-slate-300">{locationLabel(r)}</td>
-                    <td className="py-2 pr-4 tabular-nums text-slate-300">{r.max_capacity} personas</td>
-                    <td className="py-2 pr-4 tabular-nums text-slate-300">{r.target_temp} °C</td>
-                    <td className="py-2 pr-4">
-                      {sensors.length ? <span className="text-xs text-slate-400">{sensors.map(s => s.sensor_id).join(', ')}</span> : <Chip tone="warn">Sin sensor</Chip>}
-                    </td>
-                    <td className="py-2 pr-4"><LastReading reading={latest[r.id]} now={now} /></td>
-                    <td className="py-2 text-right">
-                      <button className="btn btn-ghost py-1" onClick={e => { e.stopPropagation(); onEdit(r) }}><Pencil size={13} /> Editar</button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <Pagination {...page} noun="aulas" />
-    </Card>
-  )
-}
-
+// ── Aula ──────────────────────────────────────────────────────────────────────
 function RoomDialog({ original, onClose, onDelete, onSaved }: {
   original: Room | null
   onClose: () => void
   onDelete: (r: Room) => void
-  onSaved: (msg: string) => void
+  onSaved: (msg: string, id: string) => void
 }) {
   const [f, setF] = useState<RoomForm>(() => original ? {
     id: original.id, name: original.name, building: original.building ?? '', floor: original.floor == null ? '' : String(original.floor),
@@ -264,10 +263,10 @@ function RoomDialog({ original, onClose, onDelete, onSaved }: {
         // Renaming always moves the room's reservations and sensors with it.
         await api.put(`/admin/rooms/${encodeURIComponent(original.id)}`, { ...body, new_id: renaming ? code : undefined },
           { params: { cascade_sensors: true, cascade_reservations: true } })
-        onSaved(renaming ? `Aula ${original.id} ahora es ${code}.` : `Aula ${code} actualizada.`)
+        onSaved(renaming ? `Aula ${original.id} ahora es ${code}.` : `Aula ${code} actualizada.`, code)
       } else {
         await api.post('/admin/rooms', { id: code, ...body })
-        onSaved(`Aula ${code} creada. Registra su sensor en la pestaña Sensores.`)
+        onSaved(`Aula ${code} creada. Registra su sensor.`, code)
       }
     } catch (e) {
       setErr(friendly(e, 'No se pudo guardar el aula.'))
@@ -304,7 +303,7 @@ function RoomDialog({ original, onClose, onDelete, onSaved }: {
         <button type="submit" className="hidden" />
       </form>
       <p className="mt-2 text-xs text-slate-500">
-        La IA decide con la temperatura objetivo. El nodo de A403 trabaja con 24 °C; usa el mismo valor para que la comparación Nodo vs IA sea justa.
+        La IA decide con la temperatura objetivo. El nodo trabaja con 24 °C; usa el mismo valor para que la comparación Nodo vs IA sea justa.
       </p>
 
       {renaming && moving && (
@@ -375,140 +374,37 @@ function DeleteRoomDialog({ room, onClose, onDeleted, onError }: {
   )
 }
 
-// ── Sensores ──────────────────────────────────────────────────────────────────
-type SensorFilter = 'all' | 'unassigned' | 'off' | 'silent'
-const STALE_MIN = 15
-
-function SensorsTab({ devices, rooms, latest, now, onEdit }: {
-  devices: Device[]; rooms: Record<string, Room>; latest: Record<string, StoredReading | null>; now: number; onEdit: (d: Device) => void
-}) {
-  const [query, setQuery] = useState('')
-  const [show, setShow] = useState<SensorFilter>('all')
-  const silent = (d: Device) => {
-    const r = latest[d.sensor_id]
-    return !r || (now - parseUtc(r.timestamp).getTime()) / 60_000 > STALE_MIN
-  }
-  const q = query.trim().toLowerCase()
-  const list = devices
-    .filter(d => !q || d.sensor_id.toLowerCase().includes(q) || (d.room_id ?? '').toLowerCase().includes(q) || (d.room_name ?? '').toLowerCase().includes(q))
-    .filter(d => show === 'all' || (show === 'unassigned' && !d.room_id) || (show === 'off' && !d.is_active) || (show === 'silent' && silent(d)))
-    .sort((a, b) => {
-      const ra = a.room_id ? rooms[a.room_id] : undefined, rb = b.room_id ? rooms[b.room_id] : undefined
-      if (ra && rb) return compareRooms(ra, rb) || a.sensor_id.localeCompare(b.sensor_id)
-      return ra ? -1 : rb ? 1 : a.sensor_id.localeCompare(b.sensor_id)
-    })
-  const page = usePage(list, 15)
-  const counts = {
-    unassigned: devices.filter(d => !d.room_id).length,
-    off: devices.filter(d => !d.is_active).length,
-    silent: devices.filter(silent).length,
-  }
-
-  return (
-    <Card>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <label className="relative">
-          <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Sensor o aula…" className="field w-48 pl-8" aria-label="Buscar sensor" />
-        </label>
-        <div className="segmented">
-          {([
-            ['all', 'Todos'],
-            ['silent', `Sin datos recientes · ${counts.silent}`],
-            ['off', `Sin recibir datos · ${counts.off}`],
-            ['unassigned', `Sin aula · ${counts.unassigned}`],
-          ] as [SensorFilter, string][]).map(([k, label]) => (
-            <button key={k} className={`segmented-item ${show === k ? 'segmented-item-active' : ''}`} onClick={() => setShow(k)}>{label}</button>
-          ))}
-        </div>
-      </div>
-      {list.length === 0 ? (
-        <p className="py-4 text-sm text-slate-400">{devices.length ? 'Ningún sensor coincide.' : 'Todavía no hay sensores. Registra uno con "Nuevo sensor".'}</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="table-head">
-                {['Sensor', 'Aula', 'Recibe datos', 'Controla el aire', 'Última lectura', ''].map(h => <th key={h} className="py-2 pr-4 font-normal">{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {page.rows.map(d => {
-                const room = d.room_id ? rooms[d.room_id] : undefined
-                return (
-                  <tr key={d.sensor_id} className="table-row cursor-pointer" onClick={() => onEdit(d)}>
-                    <td className="py-2 pr-4 font-mono text-xs text-slate-200">{d.sensor_id}</td>
-                    <td className="py-2 pr-4">
-                      {d.room_id
-                        ? <><Link to={`/room/${d.room_id}`} onClick={e => e.stopPropagation()} className="font-medium text-slate-100 hover:underline">{d.room_id}</Link>
-                            {room && <span className="ml-2 text-xs text-slate-400">{locationLabel(room)}</span>}</>
-                        : <Chip tone="warn">Sin aula</Chip>}
-                    </td>
-                    <td className="py-2 pr-4">{d.is_active ? <Chip tone="ok">Sí</Chip> : <Chip>No</Chip>}</td>
-                    <td className="py-2 pr-4">{d.control_enabled ? <Chip tone="ok">Sí</Chip> : <Chip>No</Chip>}</td>
-                    <td className="py-2 pr-4"><LastReading reading={latest[d.sensor_id]} now={now} /></td>
-                    <td className="py-2 text-right">
-                      <button className="btn btn-ghost py-1" onClick={e => { e.stopPropagation(); onEdit(d) }}><Pencil size={13} /> Editar</button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <Pagination {...page} noun="sensores" />
-      <p className="mt-2 text-xs text-slate-500">
-        "Recibe datos" y "Controla el aire" se cambian desde la vista de cada aula, en Configuración.
-      </p>
-    </Card>
-  )
-}
-
-function SensorDialog({ original, rooms, devices, onClose, onDelete, onSaved }: {
+// ── Sensor ────────────────────────────────────────────────────────────────────
+/** Register a sensor in a room, or change its code. The room is fixed: a sensor never lives outside one. */
+function SensorDialog({ room, original, devices, onClose, onSaved }: {
+  room: Room
   original: Device | null
-  rooms: Room[]
   devices: Device[]
   onClose: () => void
-  onDelete: (d: Device) => void
   onSaved: (msg: string) => void
 }) {
-  const [id, setId] = useState(original?.sensor_id ?? '')
-  const [roomId, setRoomId] = useState(original?.room_id ?? '')
+  // Convention used by the node and MQTT ingest: sensor s-<room>.
+  const [id, setId] = useState(original?.sensor_id ?? `s-${room.id}`)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const options = useMemo(() => [
-    ...(original ? [{ value: '__none__', label: 'Sin aula (desinstalado)', group: 'Sin asignar' }] : []),
-    ...roomOptions(rooms),
-  ], [rooms, original])
 
   const code = id.trim()
   const taken = devices.some(d => d.sensor_id === code && d.sensor_id !== original?.sensor_id)
   const problems: string[] = []
-  if (!code) problems.push('Indica el código del sensor.')
-  if (taken) problems.push('Ya existe un sensor con ese código.')
-  if (!original && !roomId) problems.push('Elige el aula donde está instalado.')
-
-  // Convention used by the node and MQTT ingest: sensor s-<room>.
-  function pickRoom(v: string) {
-    setRoomId(v)
-    if (!original && v && (!id || /^s-/.test(id))) setId(`s-${v}`)
-  }
+  if (!code) problems.push('Indica el código del nodo.')
+  if (taken) problems.push('Ya existe un nodo con ese código.')
+  if (original && code === original.sensor_id) problems.push('Escribe el código nuevo.')
 
   async function save() {
     if (problems.length) return
     setSaving(true); setErr(null)
-    const target = roomId === '__none__' ? null : roomId || null
     try {
       if (original) {
-        await api.put(`/admin/sensors/${encodeURIComponent(original.sensor_id)}`, {
-          room_id: target,
-          ...(code !== original.sensor_id ? { new_id: code } : {}),
-        })
-        onSaved(`Sensor ${code} actualizado.`)
+        await api.put(`/admin/sensors/${encodeURIComponent(original.sensor_id)}`, { room_id: room.id, new_id: code })
+        onSaved(`Nodo ${original.sensor_id} ahora es ${code}.`)
       } else {
-        await api.post('/admin/sensors', { id: code, room_id: target })
-        onSaved(`Sensor ${code} registrado en ${target}. Actívalo desde la vista del aula cuando esté instalado.`)
+        await api.post('/admin/sensors', { id: code, room_id: room.id })
+        onSaved(`Nodo ${code} registrado en ${room.id}. Actívalo cuando esté instalado.`)
       }
     } catch (e) {
       setErr(friendly(e, 'No se pudo guardar el sensor.'))
@@ -517,28 +413,26 @@ function SensorDialog({ original, rooms, devices, onClose, onDelete, onSaved }: 
 
   return (
     <Dialog
-      title={original ? `Editar sensor ${original.sensor_id}` : 'Nuevo sensor'}
+      title={original ? `Cambiar código de ${original.sensor_id}` : `Registrar nodo en ${room.id}`}
       onClose={onClose}
       footer={<>
-        {original && <button className="btn btn-ghost text-red-300 hover:text-red-200" onClick={() => onDelete(original)}>Eliminar sensor</button>}
         <span className="flex-1" />
         <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
         <button className="btn btn-primary" onClick={save} disabled={saving || problems.length > 0}>
-          {saving && <RefreshCw size={14} className="animate-spin" />} {original ? 'Guardar cambios' : 'Registrar sensor'}
+          {saving && <RefreshCw size={14} className="animate-spin" />} {original ? 'Guardar' : 'Registrar nodo'}
         </button>
       </>}
     >
-      <div className="space-y-3">
-        <SearchableSelect label="Aula" options={options} value={roomId} onChange={pickRoom} placeholder="Busca el aula…" maxVisibleItems={6} />
+      <form className="space-y-3" onSubmit={e => { e.preventDefault(); save() }}>
         <label className="block">
-          <span className="field-label">Código del sensor</span>
-          <input className="field font-mono" value={id} onChange={e => setId(e.target.value)} placeholder="ej. s-M601" />
-          <span className="mt-1 block text-xs text-slate-500">El nodo publica con el código s-&lt;aula&gt; (por ejemplo s-A403). Usa ese formato para que sus lecturas se asocien al aula.</span>
+          <span className="field-label">Código del nodo</span>
+          <input className="field font-mono" value={id} onChange={e => setId(e.target.value)} autoFocus />
+          <span className="mt-1 block text-xs text-slate-500">El nodo publica con el código s-&lt;aula&gt; (por ejemplo s-{room.id}). Usa ese formato para que sus lecturas lleguen a esta aula.</span>
         </label>
-        {!original && <p className="text-xs text-slate-500">Se registra sin recibir datos ni controlar el aire, hasta que lo actives desde la vista del aula.</p>}
+        {!original && <p className="text-xs text-slate-500">Se registra desactivado; actívalo cuando el nodo esté instalado.</p>}
         {err && <p className="text-xs text-red-300">{err}</p>}
-        {problems.length > 0 && <p className="text-xs text-slate-500">{problems[0]}</p>}
-      </div>
+        {problems.length > 0 && code && <p className="text-xs text-slate-500">{problems[0]}</p>}
+      </form>
     </Dialog>
   )
 }
@@ -556,7 +450,7 @@ function DeleteSensorDialog({ device, onClose, onDeleted, onError }: {
   return (
     <Dialog
       size="sm"
-      title={`¿Eliminar el sensor ${device.sensor_id}?`}
+      title={`¿Eliminar el nodo ${device.sensor_id}?`}
       onClose={onClose}
       footer={<>
         <span className="flex-1" />
@@ -565,7 +459,7 @@ function DeleteSensorDialog({ device, onClose, onDeleted, onError }: {
       </>}
     >
       <p className="text-sm text-slate-300">
-        Sus lecturas pasadas se conservan. Si el nodo sigue publicando con este código, sus nuevas lecturas se guardarán sin aula y sin decisión de la IA.
+        Sus lecturas pasadas se conservan. Si el nodo sigue publicando con este código, sus nuevas lecturas se descartarán hasta que lo registres de nuevo.
       </p>
     </Dialog>
   )
