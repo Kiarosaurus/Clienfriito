@@ -1,263 +1,287 @@
-import { useState, useEffect } from 'react'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer,
-} from 'recharts'
-import {
-  TrendingUp, Zap, Leaf, RefreshCw, AlertCircle,
-  FlaskConical, Clock,
-} from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { CircleHelp, RefreshCw } from 'lucide-react'
 import api, { getApiErrorDetail } from '../api/client'
+import { RoomFilters, useRoomFilter } from '../components/RoomFilters'
+import { OCCUPIED_PPM } from '../components/NodeRules'
+import { FW } from '../components/NodeLive'
+import { Dialog, Kpi, Pagination, usePage } from '../components/ui'
+import { compareRooms, type Room } from '../utils/rooms'
 
-// Average CO₂ emission factor for the electrical grid (kg CO₂ per kWh).
-// Source: EPA eGrid average; Peru's grid factor is ~0.224 — 0.233 is a conservative estimate.
-const CO2_KG_PER_KWH = 0.233
+// What the electricity bill looks like with the system against the usual idea
+// without it: the equipment at full power for every whole class. Energy comes from
+// the month-long simulation; the tariff is editable to try other figures (not saved).
 
-interface Assumptions {
-  ac_power_kw: number
-  cost_per_kwh: number
-  estimated_interval_minutes: number
+interface RoomEnergy {
+  room_id: string
+  copied_from: string | null
+  strategy: 'rules' | 'learning'
+  class_hours: number
+  reference_kwh: number
+  rules_kwh: number
+  learning_kwh: number
 }
 
-interface TrendDay {
-  date: string
-  traditional_kwh: number
-  cognitive_kwh: number
-  savings_kwh: number
-}
-
-interface ROIData {
-  total_hours_analyzed: number
-  total_readings: number
-  traditional_kwh: number
-  cognitive_kwh: number
-  energy_saved_kwh: number
-  standby_hours: number
-  total_savings_currency: number
-  currency: string
-  assumptions: Assumptions
-  trend_data: TrendDay[]
+interface RoiData {
+  tariff: { pen_per_kwh: number; label: string }
+  reference: string
+  month_days: number
+  cold_start_c: number
+  equipment: { fan_w: number | null; fan_m3h: number | null; heater_w: number | null }
+  step_s: number[]
+  rooms: RoomEnergy[]
   simulated: boolean
 }
 
-function fmt(n: number, dec = 2) {
-  return n.toFixed(dec)
-}
+type Row = Room & RoomEnergy & { real: number }
 
-function shortDate(iso: string) {
-  const [, month, day] = iso.split('-')
-  return `${day}/${month}`
-}
+const STRATEGY: Record<string, string> = { rules: 'Reglas del nodo', learning: 'Aprendizaje automático' }
 
-interface KpiCardProps {
-  icon: React.ReactNode
-  label: string
-  value: string
-  sublabel: string
-}
+const num = (n: number, dec = 0) => n.toLocaleString('es-PE', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+const soles = (n: number, dec = 0) => `${n < 0 ? '−' : ''}S/ ${num(Math.abs(n), dec)}`
+const change = (real: number, ref: number) => ref > 0 ? (real / ref - 1) * 100 : 0
+const signed = (p: number) => `${p > 0 ? '+' : p < 0 ? '−' : ''}${num(Math.abs(p))} %`
 
-function KpiCard({ icon, label, value, sublabel }: KpiCardProps) {
+// The node's rules (firmware thresholds in FW), checked top to bottom: the first two win over temperature.
+const c = (n: number) => `${num(n, 1)} °C`
+const NODE_RULES: { group: string; rows: [string, string][] }[] = [
+  {
+    group: 'Primero',
+    rows: [
+      [`CO desde ${FW.coAlarm} ppm`, 'Extractor al 100 %, calefactor apagado'],
+      [`CO₂ bajo ${OCCUPIED_PPM} ppm (aula vacía)`, 'Extractor y calefactor apagados'],
+    ],
+  },
+  {
+    group: 'Si no, según la temperatura',
+    rows: [
+      [`Bajo ${c(FW.heatOn)}`, 'Calefactor encendido'],
+      [`${c(FW.heatOn)} – ${c(FW.coolOn)}`, 'Extractor y calefactor apagados'],
+      [`${c(FW.coolOn)} – ${c(FW.fan75At)}`, 'Extractor al 50 %'],
+      [`${c(FW.fan75At)} – ${c(FW.fan100At)}`, 'Extractor al 75 %'],
+      [`Desde ${c(FW.fan100At)} o CO₂ ≥ ${FW.fan100Co2} ppm`, 'Extractor al 100 %'],
+    ],
+  },
+]
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="surface flex items-start gap-3 p-4">
-      <span className="mt-0.5 text-slate-400">{icon}</span>
-      <div className="min-w-0">
-        <p className="text-xs text-slate-400">{label}</p>
-        <p className="mt-1 truncate text-xl font-semibold leading-tight text-white tabular-nums">{value}</p>
-        <p className="mt-1 text-xs text-slate-500">{sublabel}</p>
-      </div>
-    </div>
+    <section className="flex flex-col gap-2">
+      <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
+      <div className="flex flex-col gap-2 text-sm leading-relaxed text-slate-300">{children}</div>
+    </section>
   )
 }
 
-const TOOLTIP_STYLE = {
-  backgroundColor: '#0f172a',
-  border: '1px solid #334155',
-  borderRadius: '10px',
-  color: '#e2e8f0',
-  fontSize: 12,
-  boxShadow: '0 4px 24px rgba(0,0,0,0.6)',
-}
-
-export default function ROIReport() {
-  const [data, setData]       = useState<ROIData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError]     = useState<string | null>(null)
-
-  function fetchROI() {
-    setLoading(true)
-    setError(null)
-    api.get<ROIData>('/reports/roi')
-      .then(res => setData(res.data))
-      .catch(err => setError(getApiErrorDetail(err) ?? 'Error calculando ROI.'))
-      .finally(() => setLoading(false))
-  }
-
-  useEffect(() => { fetchROI() }, [])
-
-  const chartData = data?.trend_data.map(d => ({
-    date:        shortDate(d.date),
-    'Tradicional': d.traditional_kwh,
-    'Cognitivo':   d.cognitive_kwh,
-  })) ?? []
-
-  const co2Saved = data ? data.energy_saved_kwh * CO2_KG_PER_KWH : 0
-  // standbyPct = fraction of traditional consumption avoided by the cognitive system
-  const standbyPct = data && data.traditional_kwh > 0
-    ? (data.energy_saved_kwh / data.traditional_kwh * 100)
-    : 0
-
+// Everything the figures rest on, in plain words: equipment, when it runs with and
+// without the system, where the energy comes from and what the tariff covers.
+function AssumptionsDialog({ data, onClose }: { data: RoiData; onClose: () => void }) {
+  const eq = data.equipment
+  const cold = num(data.cold_start_c, 1)
+  const fanW = eq.fan_w != null ? num(eq.fan_w) : '—'
+  const heatKw = eq.heater_w != null ? num(eq.heater_w / 1000, eq.heater_w % 1000 ? 1 : 0) : '—'
+  const copies = [...new Set(data.rooms.map(r => r.copied_from).filter(Boolean))]
   return (
-    <div className="space-y-4">
+    <Dialog title="¿Cómo se calcula?" onClose={onClose} size="lg">
+      <div className="flex max-h-[75vh] flex-col gap-5 overflow-auto">
+        <Section title="Equipos por aula">
+          <ul className="list-disc space-y-1 pl-5">
+            <li>
+              Extractor de pared de {fanW} W{eq.fan_m3h ? ` (${num(eq.fan_m3h)} m³/h)` : ''}, con velocidad variable (motor EC)
+              {eq.fan_w != null && (
+                <ul className="mt-1 list-[circle] space-y-0.5 pl-5 text-slate-400">
+                  <li>Al 50 %: unos {num(eq.fan_w * 0.5 ** 3)} W</li>
+                  <li>Al 75 %: unos {num(eq.fan_w * 0.75 ** 3)} W</li>
+                  <li>Saca el aire del aula y entra aire de afuera: así baja la temperatura y el CO₂.</li>
+                </ul>
+              )}
+            </li>
+            <li>Calefactor de {heatKw} kW.</li>
+            <li>Nunca funcionan a la vez.</li>
+          </ul>
+        </Section>
 
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="page-title">Rentabilidad</h1>
-            <p className="mt-1 text-xs text-slate-400">Retorno de inversión del sistema cognitivo</p>
-          </div>
-        </div>
-        <button
-          onClick={fetchROI}
-          disabled={loading}
-          className="btn btn-secondary"
-        >
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Recalcular
-        </button>
-      </div>
-
-      {/* Simulated data banner */}
-      {data?.simulated && (
-        <div className="flex items-center gap-2 bg-amber-900/30 border border-amber-500/40 rounded-lg px-4 py-3 text-sm text-amber-300">
-          <FlaskConical size={15} className="shrink-0" />
-          <span>
-            <strong>Datos simulados</strong> — base de datos con menos de 2 lecturas reales.
-            Los valores mostrados son proyecciones basadas en parámetros estándar (8 h/día operativo, 60% STANDBY).
-          </span>
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div className="flex items-center gap-2 bg-red-900/30 border border-red-500/40 rounded-lg px-4 py-3 text-sm text-red-300">
-          <AlertCircle size={16} className="shrink-0" /> {error}
-        </div>
-      )}
-
-      {/* Loading */}
-      {loading && (
-        <div className="flex items-center justify-center gap-2 text-slate-400 text-sm py-20">
-          <RefreshCw size={16} className="animate-spin" />
-          Calculando ROI…
-        </div>
-      )}
-
-      {!loading && data && (
-        <>
-          {/* ── KPI Cards ─────────────────────────────────────────────────── */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <KpiCard
-              icon={<TrendingUp size={18} />}
-              label="Ahorro Económico Estimado"
-              value={`$${fmt(data.total_savings_currency)}`}
-              sublabel={`Factor: $${data.assumptions.cost_per_kwh}/kWh`}
-            />
-            <KpiCard
-              icon={<Zap size={18} />}
-              label="Energía Ahorrada"
-              value={`${fmt(data.energy_saved_kwh, 1)} kWh`}
-              sublabel={`${fmt(data.standby_hours, 1)} h en STANDBY`}
-            />
-            <KpiCard
-              icon={<Leaf size={18} />}
-              label="Reducción de Huella de Carbono"
-              value={`${fmt(co2Saved, 2)} kg CO₂`}
-              sublabel={`Factor: ${CO2_KG_PER_KWH} kg/kWh`}
-            />
-          </div>
-
-          {/* ── Comparative Bar Chart ──────────────────────────────────────── */}
-          <div className="surface p-4">
-            <h2 className="section-title mb-1">
-              Consumo comparativo, últimos 7 días (kWh)
-            </h2>
-            <p className="mb-4 text-xs text-slate-400">
-              Sistema tradicional (AC encendido 100% del tiempo) vs. sistema cognitivo real
-            </p>
-
-            {chartData.length === 0 ? (
-              <div className="h-64 flex items-center justify-center text-slate-500 text-sm">
-                Sin datos para graficar
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }} barCategoryGap="30%">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis dataKey="date" stroke="#64748b" tick={{ fontSize: 11 }} />
-                  <YAxis stroke="#64748b" tick={{ fontSize: 11 }} unit=" kWh" />
-                  <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'transparent' }} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="Tradicional" fill="#64748b" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Cognitivo"   fill="#38bdf8" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-
-          {/* ── Cognitive Summary Panel ────────────────────────────────────── */}
-          <div className="surface p-4">
-            <h2 className="section-title mb-3">
-              Resumen cognitivo
-            </h2>
-
-            <p className="mb-4 text-sm leading-relaxed text-slate-300">
-              El sistema ha optimizado la ventilación basándose en patrones de ocupación,
-              evitando{' '}
-              <span className="font-semibold text-white">{fmt(data.energy_saved_kwh, 2)} kWh</span>
-              {' '}de gasto por inercia térmica.
-            </p>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                {
-                  icon: <Clock size={14} className="text-slate-400" />,
-                  label: 'Horas analizadas',
-                  value: `${fmt(data.total_hours_analyzed, 1)} h`,
-                },
-                {
-                  icon: <Zap size={14} className="text-slate-400" />,
-                  label: 'Lecturas procesadas',
-                  value: data.total_readings.toLocaleString(),
-                },
-                {
-                  icon: <TrendingUp size={14} className="text-slate-400" />,
-                  label: 'Eficiencia lograda',
-                  value: `${fmt(standbyPct, 1)}%`,
-                },
-                {
-                  icon: <Leaf size={14} className="text-slate-400" />,
-                  label: 'CO₂ evitado',
-                  value: `${fmt(co2Saved, 2)} kg`,
-                },
-              ].map(item => (
-                <div key={item.label} className="surface-inset px-3 py-2">
-                  <div className="flex items-center gap-1.5 mb-1.5">{item.icon}
-                    <span className="text-xs text-slate-500">{item.label}</span>
-                  </div>
-                  <p className="text-sm font-semibold text-slate-100">{item.value}</p>
+        <div className="grid gap-5 md:grid-cols-2">
+          <Section title="Sin el sistema">
+            <p>Cada clase, de inicio a fin, a plena potencia: calefactor si el aula empieza bajo {cold} °C; si no, extractor. Fuera de clase, apagado.</p>
+          </Section>
+          <Section title="Con el sistema">
+            <div className="overflow-hidden rounded-lg border border-slate-800 text-xs">
+              {NODE_RULES.map(g => (
+                <div key={g.group}>
+                  <div className="bg-slate-950/60 px-3 py-1.5 text-slate-500">{g.group}</div>
+                  {g.rows.map(([when, then]) => (
+                    <div key={when} className="grid grid-cols-[8.5rem_1fr] gap-3 border-t border-slate-800 px-3 py-1.5">
+                      <span className="tabular-nums text-slate-400">{when}</span>
+                      <span className="text-slate-200">{then}</span>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
+            <p className="text-xs text-slate-400">Reglas del nodo. Con aprendizaje, el servidor da las órdenes cada 5 min.</p>
+          </Section>
+        </div>
 
-            <div className="mt-4 pt-4 border-t border-slate-700/60 text-xs text-slate-500 flex flex-wrap gap-x-4 gap-y-1">
-              <span>Potencia AC asumida: <strong className="text-slate-400">{data.assumptions.ac_power_kw} kW</strong></span>
-              <span>Intervalo de muestreo: <strong className="text-slate-400">{data.assumptions.estimated_interval_minutes} min</strong></span>
-              <span>Tarifa energética: <strong className="text-slate-400">${data.assumptions.cost_per_kwh}/kWh</strong></span>
-              {data.simulated && (
-                <span className="text-amber-500/70">* Proyección simulada — desplegar sensores físicos para datos reales</span>
-              )}
-            </div>
+        <p className="border-t border-slate-800 pt-3 text-xs leading-relaxed text-slate-500">
+          Un mes simulado por aula{copies.length > 0 ? ` (las demás repiten ${copies.join(', ')})` : ''}, llevado a {data.month_days} días.
+          Tarifa: solo energía, sin cargo por potencia.
+        </p>
+      </div>
+    </Dialog>
+  )
+}
+
+export default function ROIReport() {
+  const [data, setData] = useState<RoiData | null>(null)
+  const [rooms, setRooms] = useState<Room[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [tariff, setTariff] = useState('')
+  const [help, setHelp] = useState(false)
+
+  useEffect(() => {
+    Promise.all([api.get<RoiData>('/reports/roi'), api.get<Room[]>('/admin/rooms')])
+      .then(([roi, rs]) => {
+        setData(roi.data)
+        setRooms(rs.data)
+        setTariff(String(roi.data.tariff.pen_per_kwh))
+      })
+      .catch(err => setError(getApiErrorDetail(err) ?? 'No se pudo calcular el ahorro.'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const t = Number(tariff) || 0
+
+  const rows: Row[] = useMemo(() => {
+    if (!data) return []
+    const byId = new Map(rooms.map(r => [r.id, r]))
+    return data.rooms
+      .map(e => {
+        const room = byId.get(e.room_id) ?? { id: e.room_id, name: e.room_id, max_capacity: 0, target_temp: 0 }
+        return { ...room, ...e, real: e.strategy === 'learning' ? e.learning_kwh : e.rules_kwh }
+      })
+      .sort(compareRooms)
+  }, [data, rooms])
+
+  const filter = useRoomFilter(rows)
+  const list = filter.filtered as Row[]
+  const page = usePage(list, 50)
+
+  // Totals follow the filters, so the admin can look at one building or floor.
+  const total = list.reduce((s, r) => ({ real: s.real + r.real, ref: s.ref + r.reference_kwh }), { real: 0, ref: 0 })
+  const saving = (total.ref - total.real) * t
+  const maxKwh = Math.max(1, ...list.map(r => Math.max(r.real, r.reference_kwh)))
+  const strategies = [...new Set(list.map(r => r.strategy))]
+  const copies = list.filter(r => r.copied_from).map(r => r.copied_from)
+
+  return (
+    <div className="flex flex-col gap-4 lg:h-full lg:min-h-0">
+      <div className="shrink-0">
+        <h1 className="page-title">Rentabilidad</h1>
+        <p className="mt-1 text-sm text-slate-400">
+          ¿Cuánto se ahorra con el sistema frente a encender los equipos en cada clase? · Por mes{data && (data.simulated ? ' · datos simulados' : ' · datos medidos')}
+        </p>
+      </div>
+
+      {error && <p className="text-sm text-red-300">{error}</p>}
+
+      {loading ? (
+        <p className="flex items-center justify-center gap-2 py-20 text-sm text-slate-400"><RefreshCw size={14} className="animate-spin" /> Calculando…</p>
+      ) : data && (
+        <>
+          <div className="grid shrink-0 grid-cols-2 gap-3 xl:grid-cols-4">
+            <Kpi label={saving >= 0 ? 'Ahorro al mes' : 'Gasto extra al mes'} value={soles(Math.abs(saving))} />
+            <Kpi label="Costo con el sistema" value={soles(total.real * t)} unit={`de ${soles(total.ref * t)} sin él`} />
+            <Kpi label="Energía al mes" value={num(total.real)} unit={`de ${num(total.ref)} kWh`} status={signed(change(total.real, total.ref))} />
+            <Kpi label="Ahorro al año" value={soles(saving * 12)} hint="El ahorro mensual por 12 meses." />
           </div>
+
+          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+            <section className="surface flex min-h-0 flex-col overflow-hidden">
+              <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-slate-800 p-3">
+                <RoomFilters rooms={rows} state={filter.state} onChange={filter.setState} />
+                <span className="ml-auto flex items-center gap-3 text-xs text-slate-400">
+                  <span className="flex items-center gap-1.5"><span className="h-1.5 w-2.5 rounded-sm bg-sky-400" />Con el sistema</span>
+                  <span className="flex items-center gap-1.5"><span className="h-1.5 w-2.5 rounded-sm bg-slate-600" />Sin el sistema</span>
+                </span>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-auto">
+                {list.length === 0 ? (
+                  <p className="py-12 text-center text-sm text-slate-500">
+                    {rows.length === 0 ? 'Aún no hay aulas simuladas.' : 'Ninguna aula coincide.'}
+                  </p>
+                ) : (
+                  <table className="w-full min-w-[680px] text-sm">
+                    <thead>
+                      <tr className="table-head">
+                        <th className="px-4 py-2.5 text-left font-normal">Aula</th>
+                        <th className="w-[34%] px-4 py-2.5 text-left font-normal">Energía al mes</th>
+                        <th className="px-4 py-2.5 text-right font-normal">kWh con / sin</th>
+                        <th className="px-4 py-2.5 text-right font-normal">Costo con / sin</th>
+                        <th className="px-4 py-2.5 text-right font-normal">Ahorro</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {page.rows.map(r => {
+                        const s = (r.reference_kwh - r.real) * t
+                        return (
+                          <tr key={r.id} className="border-b border-slate-800">
+                            <td className="px-4 py-2.5">
+                              <span className="font-medium text-slate-100">{r.id}</span>
+                              {r.strategy === 'learning' && <span className="ml-2 text-xs text-slate-500">aprendizaje</span>}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <span className="flex flex-col gap-1">
+                                <span className="block h-1.5 rounded-sm bg-sky-400" style={{ width: `${r.real / maxKwh * 100}%` }} />
+                                <span className="block h-1.5 rounded-sm bg-slate-600" style={{ width: `${r.reference_kwh / maxKwh * 100}%` }} />
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-right tabular-nums text-slate-400">{num(r.real)} / {num(r.reference_kwh)}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums text-slate-300">{soles(r.real * t, 1)} / {soles(r.reference_kwh * t, 1)}</td>
+                            <td className={`px-4 py-2.5 text-right tabular-nums ${s < 0 ? 'text-amber-300' : 'text-slate-100'}`}>
+                              {soles(s, 1)} <span className="text-xs text-slate-500">{signed(change(r.real, r.reference_kwh))}</span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-800 px-4 py-2 text-xs text-slate-500">
+                <span>{copies.length > 0 && `${copies.length} aulas repiten la simulación de ${[...new Set(copies)].join(', ')}.`}</span>
+                <Pagination {...page} noun="aulas" />
+              </div>
+            </section>
+
+            <aside className="surface flex flex-col overflow-auto">
+              <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2">
+                <span className="text-sm font-semibold text-slate-100">Supuestos</span>
+                <button className="btn btn-ghost -mr-2 px-2 py-1 text-slate-400" onClick={() => setHelp(true)} aria-label="¿Cómo se calcula?" title="¿Cómo se calcula?">
+                  <CircleHelp size={16} />
+                </button>
+              </div>
+              <div className="flex flex-col gap-4 p-4 text-sm">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-slate-400">Tarifa (S/ por kWh)</span>
+                  <input className="field" inputMode="decimal" value={tariff} onChange={e => setTariff(e.target.value)} />
+                  <span className="text-xs text-slate-500">{data.tariff.label}</span>
+                </label>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-slate-400">Sin el sistema</span>
+                  <span className="text-xs leading-relaxed text-slate-300">{data.reference}</span>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-slate-400">Con el sistema</span>
+                  <span className="text-xs text-slate-300">
+                    {strategies.length === 1 ? STRATEGY[strategies[0]] : 'La estrategia que usa cada aula hoy (ver Configuración).'}
+                  </span>
+                </div>
+              </div>
+            </aside>
+          </div>
+          {help && <AssumptionsDialog data={data} onClose={() => setHelp(false)} />}
         </>
       )}
     </div>
