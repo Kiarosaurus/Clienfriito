@@ -65,7 +65,8 @@ services:
       # Loopback-only: the public path is frontend-nginx → backend over the
       # internal network; exposing 8000 on 0.0.0.0 would bypass nginx (and its
       # security headers) and publish /docs. localhost keeps local dev working.
-      - "127.0.0.1:8000:8000"
+      # BACKEND_HOST_PORT lets you pick another host port when 8000 is taken.
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
     env_file:
       - .env
     environment:
