@@ -42,16 +42,6 @@ function AdminRoute({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
-/** RBAC gate: allows admin + collaborator. Guests are redirected to the dashboard. */
-function CollaboratorRoute({ children }: { children: ReactNode }) {
-  const { user, token, isInitializing, isSessionExpired } = useAuth()
-  if (isInitializing) return null
-  if (isSessionExpired) return null  // Layout's modal covers the screen
-  if (!token) return <Navigate to="/login" replace />
-  if (user?.role === 'guest') return <Navigate to="/" replace />
-  return <>{children}</>
-}
-
 export default function App() {
   return (
     <BrowserRouter>
@@ -74,14 +64,9 @@ export default function App() {
           <Route path="rooms"        element={<Navigate to="/" replace />} />
           <Route path="room/:id"     element={<RoomDetail />} />
           <Route path="sensors" element={<Navigate to="/infrastructure?vista=sensores" replace />} />
-          <Route
-            path="reservations"
-            element={
-              <CollaboratorRoute>
-                <Reservations />
-              </CollaboratorRoute>
-            }
-          />
+          {/* Read-only timetable: every role may see it. The old path still works. */}
+          <Route path="horarios" element={<Reservations />} />
+          <Route path="reservations" element={<Navigate to="/horarios" replace />} />
           <Route
             path="admin/users"
             element={

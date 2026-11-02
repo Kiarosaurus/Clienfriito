@@ -400,7 +400,7 @@ export default function RoomDetail() {
         {/* Where expected occupancy comes from: weekly classes + one-off reservations */}
         {!hasNode && <Card
           title="Horario de clases"
-          aside={!isGuest && <Link to="/reservations" className="text-blue-300 hover:underline">Gestionar reservas</Link>}
+          aside={<Link to="/horarios" className="text-blue-300 hover:underline">Ver horarios</Link>}
         >
           <p className="mb-3 text-xs text-slate-400">
             {hasNode

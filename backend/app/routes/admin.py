@@ -3,7 +3,7 @@ import math
 from datetime import datetime, time as dt_time, timezone, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -860,6 +860,45 @@ def room_schedules(
         "end_time": s.end_time.strftime("%H:%M"),
         "expected_people": s.expected_people,
     } for s in rows]
+
+
+class WeekBlockOut(BaseModel):
+    room_id: str
+    day: int             # 0=Monday … 6=Sunday
+    start: str           # HH:MM local
+    end: str
+    kind: str            # class | reservation
+    people: int
+    by: Optional[str] = None   # who reserved; hidden from guests
+
+
+class WeekOut(BaseModel):
+    week_start: str      # Monday, YYYY-MM-DD
+    blocks: List[WeekBlockOut]
+
+
+@router.get("/occupancy/week", response_model=WeekOut)
+def occupancy_week(
+    start: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="Any day of the week; default: this week"),
+    db: Session = Depends(get_db_sql),
+    current_user: User = Depends(get_current_user),
+):
+    """When every room is occupied in one week: weekly classes plus that week's
+    reservations, in one request for all rooms (design rule 11)."""
+    from datetime import date as date_cls
+    from app.core.timeutils import local_now
+    from app.services.week_schedule import build_week, monday_of
+
+    monday = monday_of(date_cls.fromisoformat(start) if start else local_now().date())
+    week_start = datetime.combine(monday, dt_time.min)
+    schedules = db.query(Schedule).all()
+    reservations = db.query(Reservation).filter(
+        Reservation.start_time >= week_start, Reservation.start_time < week_start + timedelta(days=7),
+    ).all()
+    for r in reservations:
+        r.username = r.user.username if r.user else None
+    blocks = build_week(schedules, reservations, monday, show_users=current_user.role in ("admin", "collaborator"))
+    return {"week_start": monday.isoformat(), "blocks": blocks}
 
 
 # ANTES: @router.post("/reservations", status_code=201)

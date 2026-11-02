@@ -22,9 +22,9 @@ interface NavItem {
 const NAV: { group: string; items: NavItem[] }[] = [
   { group: 'Monitoreo', items: [
     { to: '/',             label: 'Resumen',         icon: <LayoutDashboard size={18} /> },
+    { to: '/horarios',     label: 'Horarios',        icon: <CalendarDays size={18} /> },
   ] },
   { group: 'Gestión', items: [
-    { to: '/reservations', label: 'Reservas',        icon: <CalendarDays size={18} />, roles: ['admin', 'collaborator'] },
     { to: '/roi',          label: 'Rentabilidad',    icon: <TrendingUp size={18} />,   roles: ['admin'] },
   ] },
   { group: 'Administración', items: [
