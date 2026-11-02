@@ -149,3 +149,12 @@ def test_chat_forwards_undecodable_token_as_anonymous(watson_capture):
     vars_ = watson_capture["skill_variables"]
     assert vars_["jwt"] == "not-a-jwt"
     assert vars_["user_role"] == "anonymous"
+
+
+def test_downsample_keeps_first_and_last():
+    from app.routes.sensors import downsample
+    pts = [{"i": i} for i in range(100)]
+    out = downsample(pts, 10)
+    assert len(out) == 10
+    assert out[0]["i"] == 0 and out[-1]["i"] == 99
+    assert downsample(pts[:5], 10) == pts[:5]

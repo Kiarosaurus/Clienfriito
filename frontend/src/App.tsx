@@ -4,7 +4,8 @@ import { useAuth } from './context/AuthContext'
 import { EmergencyProvider } from './context/EmergencyContext'
 import Layout from './components/Layout'
 import Login from './components/Login'
-import Overview from './views/Overview'
+import Summary from './views/Summary'
+import Rooms from './views/Rooms'
 import Reservations from './views/Reservations'
 import UserManagement from './views/UserManagement'
 import Infrastructure from './views/Infrastructure'
@@ -60,8 +61,9 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Overview />} />
-          <Route path="rooms"        element={<Navigate to="/" replace />} />
+          <Route index element={<Summary />} />
+          <Route path="aulas"        element={<Rooms />} />
+          <Route path="rooms"        element={<Navigate to="/aulas" replace />} />
           <Route path="room/:id"     element={<RoomDetail />} />
           <Route path="sensors" element={<Navigate to="/infrastructure?vista=sensores" replace />} />
           {/* Read-only timetable: every role may see it. The old path still works. */}

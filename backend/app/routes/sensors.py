@@ -194,6 +194,121 @@ async def latest_by_room(
     return [{"room_id": r, "reading": latest.get(r)} for r in rooms]
 
 
+class SparkPointOut(BaseModel):
+    timestamp: str
+    temperature: Optional[float] = None
+    humidity: Optional[float] = None
+    co2_ppm: Optional[float] = None
+    co_ppm: Optional[float] = None
+
+
+class SensorRecentOut(BaseModel):
+    sensor_id: str
+    room_id: Optional[str] = None
+    points: List[SparkPointOut]
+
+
+SPARK_FIELDS = ("temperature", "humidity", "co2_ppm", "co_ppm")
+
+
+def downsample(points: list[dict], max_points: int) -> list[dict]:
+    """Keep at most max_points, evenly spaced, always including the last one."""
+    n = len(points)
+    if n <= max_points:
+        return points
+    step = (n - 1) / (max_points - 1)
+    return [points[round(i * step)] for i in range(max_points)]
+
+
+@router.get("/recent", response_model=List[SensorRecentOut])
+async def recent_by_sensor(
+    minutes: int = Query(30, ge=5, le=180),
+    max_points: int = Query(30, ge=5, le=120),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    db_sql: Session = Depends(get_db_sql),
+    current_user: User = Depends(get_current_user),
+):
+    """The last `minutes` of every sensor, for the Resumen sparklines, in one response.
+
+    The window ends at each sensor's own latest reading, so a sensor that stopped
+    reporting still shows how it was doing before it went quiet.
+    """
+    devices = await run_in_threadpool(lambda: db_sql.query(SensorDevice.id, SensorDevice.room_id).all())
+    room_of = {sid: rid for sid, rid in devices}
+    if not room_of:
+        return []
+    try:
+        lasts = await db["sensor_readings"].aggregate([
+            {"$match": {"sensor_id": {"$in": list(room_of)}}},
+            {"$sort": {"sensor_id": 1, "timestamp": -1}},
+            {"$group": {"_id": "$sensor_id", "ts": {"$first": "$timestamp"}}},
+        ]).to_list(length=None)
+        windows = []
+        for g in lasts:
+            try:
+                end = datetime.fromisoformat(g["ts"].replace("Z", ""))
+            except ValueError:
+                continue
+            start = (end - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S")
+            windows.append({"sensor_id": g["_id"], "timestamp": {"$gte": start, "$lte": g["ts"]}})
+        docs = await db["sensor_readings"].find(
+            {"$or": windows} if windows else {"_id": None},
+            {"_id": 0, "sensor_id": 1, "timestamp": 1, **{f: 1 for f in SPARK_FIELDS}},
+        ).sort([("sensor_id", 1), ("timestamp", 1)]).to_list(length=None)
+    except PyMongoError as exc:
+        logger.error("MongoDB unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+
+    series: dict[str, list[dict]] = {}
+    for d in docs:
+        series.setdefault(d.pop("sensor_id"), []).append(d)
+    return [{"sensor_id": sid, "room_id": room_of[sid], "points": downsample(pts, max_points)}
+            for sid, pts in series.items()]
+
+
+class RoomEventOut(BaseModel):
+    room_id: str
+    timestamp: str
+    kind: str
+    text: str
+    tone: str
+
+
+@router.get("/events", response_model=List[RoomEventOut])
+async def recent_events(
+    hours: int = Query(24, ge=1, le=168),
+    limit: int = Query(8, ge=1, le=50),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    db_sql: Session = Depends(get_db_sql),
+    current_user: User = Depends(get_current_user),
+):
+    """Latest events of every room (CO₂/CO alerts and sensors that stopped reporting),
+    newest first, derived from the last `hours` of readings in one query."""
+    from app.services.room_events import detect_events
+
+    devices = await run_in_threadpool(lambda: db_sql.query(SensorDevice.id, SensorDevice.room_id).all())
+    room_of = {sid: rid for sid, rid in devices if rid}
+    if not room_of:
+        return []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    since = (now - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        docs = await db["sensor_readings"].find(
+            {"sensor_id": {"$in": list(room_of)}, "timestamp": {"$gte": since}},
+            {"_id": 0, "sensor_id": 1, "timestamp": 1, "co2_ppm": 1, "co_ppm": 1},
+        ).sort([("sensor_id", 1), ("timestamp", 1)]).to_list(length=None)
+    except PyMongoError as exc:
+        logger.error("MongoDB unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+
+    by_sensor: dict[str, list[dict]] = {}
+    for d in docs:
+        by_sensor.setdefault(d["sensor_id"], []).append(d)
+    events = [e for sid, rows in by_sensor.items() for e in detect_events(room_of[sid], rows, now)]
+    events.sort(key=lambda e: e["timestamp"], reverse=True)
+    return events[:limit]
+
+
 class NodeComparisonOut(BaseModel):
     room_id: str
     sensor_id: str

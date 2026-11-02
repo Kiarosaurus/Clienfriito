@@ -269,7 +269,7 @@ export default function RoomDetail() {
     <div className={`flex flex-col gap-4 ${tab === 'vivo' || tab === 'historial' || tab === 'estrategias' || tab === 'control' || (tab === 'config' && hasNode) ? 'lg:h-full lg:min-h-0' : ''}`}>
       {/* ── Context header ── */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Link to="/" className="btn btn-ghost px-2" aria-label="Volver al resumen">
+        <Link to="/aulas" className="btn btn-ghost px-2" aria-label="Volver a las aulas">
           <ArrowLeft size={18} />
         </Link>
         <h1 className="page-title">
