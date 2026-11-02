@@ -266,7 +266,7 @@ export default function RoomDetail() {
   )
 
   return (
-    <div className={`flex flex-col gap-4 ${tab === 'vivo' || tab === 'historial' || tab === 'estrategias' || tab === 'control' ? 'lg:h-full lg:min-h-0' : ''}`}>
+    <div className={`flex flex-col gap-4 ${tab === 'vivo' || tab === 'historial' || tab === 'estrategias' || tab === 'control' || (tab === 'config' && hasNode) ? 'lg:h-full lg:min-h-0' : ''}`}>
       {/* ── Context header ── */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Link to="/" className="btn btn-ghost px-2" aria-label="Volver al resumen">
@@ -382,7 +382,7 @@ export default function RoomDetail() {
 
       {/* ── Control: manual override of the actuators (RF-26) ── */}
       {tab === 'control' && hasNode && id && (
-        <NodeControl roomId={id} nodeState={nodeState} stateAt={latest?.timestamp} online={nodes[id]?.online} canControl={!isGuest} />
+        <NodeControl roomId={id} nodeState={nodeState} stateAt={latest?.timestamp} online={nodes[id]?.online ?? false} canControl={!isGuest} />
       )}
 
       {/* ── Estrategias: rules act, learning runs in shadow ── */}
