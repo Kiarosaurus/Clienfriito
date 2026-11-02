@@ -511,6 +511,70 @@ async def strategy_comparison(
     return {"room_id": room_id, "hours": hours, **summarize(docs)}
 
 
+class DemoReadingIn(BaseModel):
+    room_id: str
+    temperature: float
+    humidity: float = 55.0
+    co2_ppm: float
+    co_ppm: float = 0.0
+
+
+# Demo readings carry the emulated node decision, tagged so they can be told apart and removed.
+DEMO_READINGS = {"is_simulated": True, "node_state.demo": True}
+
+
+@router.post("/demo", responses={403: {"model": ErrorDetail}, 404: {"model": ErrorDetail}})
+async def send_demo_reading(
+    body: DemoReadingIn,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    db_sql: Session = Depends(get_db_sql),
+    current_user: User = Depends(get_current_user),
+):
+    """Store one simulated reading for a room as if its node had sent it (Simulación page).
+
+    The node's answer comes from the firmware rules (services/node_emulator), so every
+    view (Aulas, En vivo, Resumen, alerts) shows what the real node would do. It skips
+    the learning controller, which must not learn from made-up readings.
+    """
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required.")
+    from app.services.data_service import save_reading
+    from app.services.node_emulator import emulate
+
+    device = await run_in_threadpool(
+        lambda: db_sql.query(SensorDevice).filter(SensorDevice.room_id == body.room_id).first()
+    )
+    if device is None:
+        raise HTTPException(status_code=404, detail=f"El aula {body.room_id} no tiene nodo registrado.")
+    node_state = emulate(body.temperature, body.co2_ppm, body.co_ppm)
+    reading = SensorReading(
+        sensor_id=device.id, temperature=body.temperature, humidity=body.humidity,
+        co2_ppm=body.co2_ppm, co_ppm=body.co_ppm, is_simulated=True, node_state=node_state,
+    )
+    try:
+        await save_reading(db, reading)
+    except PyMongoError as exc:
+        logger.error("MongoDB unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+    return {"room_id": body.room_id, "sensor_id": device.id, "node_state": node_state}
+
+
+@router.delete("/demo", responses={403: {"model": ErrorDetail}})
+async def clear_demo_readings(
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove every demo reading: the rooms go back to their own data."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required.")
+    try:
+        result = await db["sensor_readings"].delete_many(DEMO_READINGS)
+    except PyMongoError as exc:
+        logger.error("MongoDB unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+    return {"deleted": result.deleted_count}
+
+
 @router.delete("/simulated", status_code=200, responses={403: {"model": ErrorDetail}})
 async def purge_simulated_readings(
     db: AsyncIOMotorDatabase = Depends(get_db),
