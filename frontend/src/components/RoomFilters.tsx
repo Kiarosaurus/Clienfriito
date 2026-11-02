@@ -19,7 +19,7 @@ export function useRoomFilter(rooms: Room[], initial?: Partial<RoomFilterState>)
   return { state, setState, filtered, active }
 }
 
-// Search + building + floor. Floors only list the selected building's floors.
+// Search + building + floor. Without a building, the floor list covers every building.
 export function RoomFilters({ rooms, state, onChange, children, requireBuilding = false }: {
   rooms: Room[]
   state: RoomFilterState
@@ -28,7 +28,9 @@ export function RoomFilters({ rooms, state, onChange, children, requireBuilding 
   requireBuilding?: boolean
 }) {
   const buildings = buildingsOf(rooms)
-  const floors = state.building || requireBuilding ? floorsOf(rooms, state.building) : []
+  const floors = state.building || requireBuilding
+    ? floorsOf(rooms, state.building)
+    : [...new Set(rooms.map(r => r.floor ?? -1))].sort((a, b) => a - b)
   return (
     <div className="flex flex-wrap items-center gap-2">
       <label className="relative">
@@ -44,7 +46,12 @@ export function RoomFilters({ rooms, state, onChange, children, requireBuilding 
       <select
         className="field w-auto"
         value={state.building}
-        onChange={e => onChange({ ...state, building: e.target.value, floor: '' })}
+        onChange={e => {
+          // Keep the chosen floor when the new building also has it.
+          const b = e.target.value
+          const keep = !b || floorsOf(rooms, b).map(String).includes(state.floor)
+          onChange({ ...state, building: b, floor: keep ? state.floor : '' })
+        }}
         aria-label="Edificio"
       >
         {!requireBuilding && <option value="">Todos los edificios</option>}
@@ -54,7 +61,6 @@ export function RoomFilters({ rooms, state, onChange, children, requireBuilding 
         className="field w-auto"
         value={state.floor}
         onChange={e => onChange({ ...state, floor: e.target.value })}
-        disabled={!state.building}
         aria-label="Piso"
       >
         <option value="">Todos los pisos</option>
